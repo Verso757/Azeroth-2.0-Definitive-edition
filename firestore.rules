@@ -1,0 +1,195 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isSignedIn() { return request.auth != null; }
+    function isValidId(id) { return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$'); }
+    function incoming() { return request.resource.data; }
+    function existing() { return resource.data; }
+    
+    function getUserData() {
+      let userRef = /databases/$(database)/documents/users/$(request.auth.uid);
+      return exists(userRef) ? get(userRef).data : null;
+    }
+    
+    function isSuperAdmin() {
+      return isSignedIn() && request.auth.token.email == 'koferosgroup@gmail.com';
+    }
+
+    function isAdmin() {
+      return isSignedIn() && (isSuperAdmin() || (getUserData() != null && getUserData().role == 'admin'));
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+    
+    function getUserGuild() {
+      let data = getUserData();
+      return data != null ? data.guildId : null;
+    }
+
+    function isSameGuild(guildId) {
+       let uData = getUserData();
+       return isSignedIn() && (
+         isSuperAdmin() || 
+         guildId == '' ||
+         (uData != null && uData.guildId == guildId) ||
+         (uData != null && 'allowedGuilds' in uData && guildId in uData.allowedGuilds)
+       );
+    }
+
+    match /users/{userId} {
+      allow get: if isSignedIn() && (isOwner(userId) || isSameGuild(existing().get('guildId', '')));
+      allow create: if isSignedIn() && isOwner(userId) && incoming().guildId is string;
+      allow update: if isSignedIn() && (
+        (isSuperAdmin()) ||
+        (isOwner(userId) && incoming().role == existing().role && incoming().get('guildId', '') == existing().get('guildId', '') && incoming().allowedGuilds == existing().allowedGuilds) ||
+        (isAdmin() && getUserGuild() == existing().guildId) // Admin can update users in their guild
+      );
+      allow list: if isSignedIn() && (isSameGuild(resource.data.guildId) || (getUserData() == null && request.query.limit <= 1) || isSuperAdmin());
+    }
+
+    match /guilds/{guildId} {
+      allow read: if true; // Open enough to check code on signup
+      allow write: if isSuperAdmin();
+    }
+
+    match /areas/{areaId} {
+      allow read: if isSignedIn() && isSameGuild(resource.data.guildId);
+      allow create: if isAdmin() && isSameGuild(incoming().get('guildId', ''));
+      allow update: if isAdmin() && isSameGuild(existing().get('guildId', '')) && (incoming().get('guildId', '') == existing().get('guildId', '') || existing().get('guildId', '') == '');
+      allow delete: if isAdmin() && isSameGuild(existing().get('guildId', ''));
+    }
+
+    match /cities/{cityId} {
+      allow read: if isSignedIn() && isSameGuild(resource.data.guildId);
+      allow create: if isAdmin() && isSameGuild(incoming().get('guildId', ''));
+      allow update: if isAdmin() && isSameGuild(existing().get('guildId', '')) && (incoming().get('guildId', '') == existing().get('guildId', '') || existing().get('guildId', '') == '');
+      allow delete: if isAdmin() && isSameGuild(existing().get('guildId', ''));
+    }
+
+    match /employees/{employeeId} {
+      allow read: if isSignedIn() && isSameGuild(resource.data.guildId);
+      allow create: if isAdmin() && isSameGuild(incoming().get('guildId', ''));
+      allow update: if isAdmin() && isSameGuild(existing().get('guildId', '')) && (incoming().get('guildId', '') == existing().get('guildId', '') || existing().get('guildId', '') == '');
+      allow delete: if isAdmin() && isSameGuild(existing().get('guildId', ''));
+    }
+
+    match /routes/{routeId} {
+      allow read: if isSignedIn() && isSameGuild(resource.data.guildId);
+      allow create: if isAdmin() && isSameGuild(incoming().get('guildId', ''));
+      allow update: if isAdmin() && isSameGuild(existing().get('guildId', '')) && (incoming().get('guildId', '') == existing().get('guildId', '') || existing().get('guildId', '') == '');
+      allow delete: if isAdmin() && isSameGuild(existing().get('guildId', ''));
+    }
+
+    match /categories/{categoryId} {
+      allow read: if isSignedIn() && isSameGuild(resource.data.guildId);
+      allow create: if isAdmin() && isSameGuild(incoming().get('guildId', ''));
+      allow update: if isAdmin() && isSameGuild(existing().get('guildId', '')) && (incoming().get('guildId', '') == existing().get('guildId', '') || existing().get('guildId', '') == '');
+      allow delete: if isAdmin() && isSameGuild(existing().get('guildId', ''));
+    }
+
+    match /brands/{brandId} {
+      allow read: if isSignedIn() && isSameGuild(resource.data.guildId);
+      allow create: if isAdmin() && isSameGuild(incoming().get('guildId', ''));
+      allow update: if isAdmin() && isSameGuild(existing().get('guildId', '')) && (incoming().get('guildId', '') == existing().get('guildId', '') || existing().get('guildId', '') == '');
+      allow delete: if isAdmin() && isSameGuild(existing().get('guildId', ''));
+    }
+
+    match /equipmentTypes/{equipmentTypeId} {
+      allow read: if isSignedIn() && isSameGuild(resource.data.guildId);
+      allow create: if isAdmin() && isSameGuild(incoming().get('guildId', ''));
+      allow update: if isAdmin() && isSameGuild(existing().get('guildId', '')) && (incoming().get('guildId', '') == existing().get('guildId', '') || existing().get('guildId', '') == '');
+      allow delete: if isAdmin() && isSameGuild(existing().get('guildId', ''));
+    }
+
+    match /motifs/{motifId} {
+      allow read: if isSignedIn() && isSameGuild(resource.data.guildId);
+      allow create: if isAdmin() && isSameGuild(incoming().get('guildId', ''));
+      allow update: if isAdmin() && isSameGuild(existing().get('guildId', '')) && (incoming().get('guildId', '') == existing().get('guildId', '') || existing().get('guildId', '') == '');
+      allow delete: if isAdmin() && isSameGuild(existing().get('guildId', ''));
+    }
+
+    match /equipment_exchanges/{exchangeId} {
+      allow get: if isSignedIn() && isSameGuild(existing().get('guildId', ''));
+      allow list: if isSignedIn() && isSameGuild(resource.data.guildId);
+      allow create: if isSignedIn() && isSameGuild(incoming().get('guildId', '')) && incoming().userId == request.auth.uid;
+      allow update: if isAdmin() && isSameGuild(existing().get('guildId', '')) && (incoming().get('guildId', '') == existing().get('guildId', '') || existing().get('guildId', '') == '');
+      allow delete: if isAdmin() && isSameGuild(existing().get('guildId', ''));
+    }
+
+    match /route_responsivas/{routeId} {
+      allow get: if isSignedIn() && isSameGuild(existing().get('guildId', ''));
+      allow list: if isSignedIn() && isSameGuild(resource.data.guildId);
+      allow create: if isSignedIn() && isSameGuild(incoming().get('guildId', '')) && incoming().userId == request.auth.uid;
+      allow update: if isSignedIn() && isSameGuild(existing().get('guildId', '')) && (incoming().get('guildId', '') == existing().get('guildId', '') || existing().get('guildId', '') == '');
+      allow delete: if isAdmin() && isSameGuild(existing().get('guildId', ''));
+    }
+
+    match /assets/{assetId} {
+      allow get: if isSignedIn() && isSameGuild(existing().get('guildId', ''));
+      allow list: if isSignedIn() && isSameGuild(resource.data.guildId);
+      allow create: if isSignedIn() && isSameGuild(incoming().get('guildId', ''));
+      allow update: if isSignedIn() && isSameGuild(existing().get('guildId', '')) && (incoming().get('guildId', '') == existing().get('guildId', '') || existing().get('guildId', '') == '');
+      allow delete: if isAdmin() && isSameGuild(existing().get('guildId', ''));
+    }
+
+    match /asset_transactions/{transactionId} {
+      allow get: if isSignedIn() && isSameGuild(existing().get('guildId', ''));
+      allow list: if isSignedIn() && isSameGuild(resource.data.guildId);
+      allow create: if isSignedIn() && isSameGuild(incoming().get('guildId', ''));
+      allow update: if isSignedIn() && isSameGuild(existing().get('guildId', '')) && (incoming().get('guildId', '') == existing().get('guildId', '') || existing().get('guildId', '') == '');
+      allow delete: if isAdmin() && isSameGuild(existing().get('guildId', ''));
+    }
+
+    match /settings/{guildId} {
+      allow read: if isSameGuild(guildId);
+      allow write: if isAdmin() && isSameGuild(guildId);
+    }
+
+    function isValidIssue(data) {
+      return data.title is string && data.title.size() <= 200 &&
+             data.areaId is string && data.areaId.size() <= 100 &&
+             data.priority in ['low', 'medium', 'high', 'critical'] &&
+             data.status in ['open', 'in_progress', 'resolved', 'closed'];
+    }
+
+    match /issues/{issueId} {
+      allow get: if isSignedIn() && isSameGuild(existing().get('guildId', ''));
+      allow list: if isSignedIn() && isSameGuild(resource.data.guildId);
+      
+      allow create: if isSignedIn() && 
+                      isValidIssue(incoming()) && 
+                      incoming().userId == request.auth.uid &&
+                      isSameGuild(incoming().get('guildId', '')) &&
+                      incoming().status == 'open' &&
+                      incoming().createdAt == request.time;
+      
+      allow update: if isSignedIn() && isSameGuild(existing().get('guildId', '')) && (incoming().get('guildId', '') == existing().get('guildId', '') || existing().get('guildId', '') == '') && (
+        isAdmin() ||
+        (incoming().diff(existing()).affectedKeys().hasOnly(['reportsCount', 'updatedAt', 'reporters', 'affectedPeople']) &&
+         incoming().reportsCount is number &&
+         incoming().reporters is list &&
+         incoming().affectedPeople is list &&
+         incoming().updatedAt == request.time) ||
+        (isOwner(existing().userId) && existing().status == 'open' && 
+         incoming().diff(existing()).affectedKeys().hasOnly(['title', 'description', 'areaId', 'areaName', 'categoryId', 'categoryName', 'cityId', 'cityName', 'priority', 'style', 'updatedAt']) &&
+         incoming().updatedAt == request.time)
+      );
+
+      allow delete: if isAdmin() && isSameGuild(existing().get('guildId', ''));
+
+      match /events/{eventId} {
+        allow read: if isSignedIn() && isSameGuild(get(/databases/$(database)/documents/issues/$(issueId)).data.guildId);
+        allow create: if isSignedIn() && 
+                       isSameGuild(get(/databases/$(database)/documents/issues/$(issueId)).data.guildId) &&
+                       incoming().userId == request.auth.uid &&
+                       incoming().createdAt is string; 
+      }
+    }
+  }
+}
