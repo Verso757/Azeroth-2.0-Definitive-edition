@@ -248,9 +248,9 @@ export default function Reports() {
   }
 
   return (
-    <div className="flex flex-col lg:flex-row gap-6 h-[calc(100vh-8rem)]">
+    <div className="flex flex-col lg:flex-row gap-6 h-[calc(100vh-8rem)] w-full max-w-full overflow-hidden">
       {/* Sidebar - Filtros de Reporte */}
-      <div className="w-full lg:w-[320px] flex-shrink-0 bg-white rounded-3xl border border-slate-200 p-6 flex flex-col gap-8 shadow-sm overflow-y-auto">
+      <div className="w-full lg:w-[280px] flex-shrink-0 bg-white rounded-3xl border border-slate-200 p-6 flex flex-col gap-8 shadow-sm overflow-y-auto">
         <div>
           <h2 className="text-sm font-black text-slate-900 tracking-tight uppercase">Filtros de Reporte</h2>
           <p className="text-xs text-slate-500 mt-1">Refina la información de la matriz</p>
@@ -341,7 +341,7 @@ export default function Reports() {
       </div>
 
       {/* Main Content Area */}
-      <div className="flex-1 flex flex-col gap-6">
+      <div className="flex-1 flex flex-col gap-6 min-w-0 overflow-hidden">
         {/* Header Controls */}
         <div className="bg-white rounded-3xl border border-slate-200 p-4 shadow-sm flex flex-col sm:flex-row justify-between items-center gap-4">
           <div className="flex items-center gap-2 bg-slate-100 p-1 rounded-2xl">
