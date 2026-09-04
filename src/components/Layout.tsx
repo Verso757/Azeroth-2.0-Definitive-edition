@@ -179,7 +179,10 @@ export default function Layout() {
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
-          className="p-6 md:p-12 max-w-7xl mx-auto"
+          className={cn(
+            "p-6 md:p-12 mx-auto",
+            location.pathname === '/reports' ? "max-w-full" : "max-w-7xl"
+          )}
         >
           <Outlet />
         </motion.div>
