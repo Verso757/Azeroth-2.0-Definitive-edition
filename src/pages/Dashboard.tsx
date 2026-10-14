@@ -4,10 +4,11 @@ import { db } from '../firebase';
 import { Issue, OperationType, Asset } from '../types';
 import { handleFirestoreError } from '../constants';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area, Cell, PieChart, Pie } from 'recharts';
-import { AlertCircle, CheckCircle2, Clock, ShieldAlert, TrendingUp, Users, Activity, Zap, Box, ListTodo, Calendar, Briefcase, MonitorSmartphone } from 'lucide-react';
+import { AlertCircle, CheckCircle2, Clock, ShieldAlert, TrendingUp, Users, Activity, Zap, Box, ListTodo, Calendar, Briefcase, MonitorSmartphone, QrCode, ArrowRight, Sparkles, MapPin } from 'lucide-react';
 import { motion } from 'motion/react';
 import { cn, formatDate } from '../lib/utils';
 import { useAuth } from '../AuthContext';
+import { Link } from 'react-router-dom';
 
 const COLORS = ['#2563eb', '#3b82f6', '#60a5fa', '#93c5fd', '#bfdbfe'];
 const MONTHS = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
@@ -22,6 +23,17 @@ export default function Dashboard() {
   const [week, setWeek] = useState('all');
   const [guildFilt, setGuildFilt] = useState('all');
   const [cityFilt, setCityFilt] = useState('all');
+  const [areaFilt, setAreaFilt] = useState('all');
+  const isDivisionHead = profile?.role === 'division_head';
+
+  useEffect(() => {
+    if (profile?.role === 'division_head' && (profile?.areaId || profile?.areaName)) {
+      setAreaFilt(profile.areaId || profile.areaName || 'all');
+    }
+    if (profile?.cityId) {
+      setCityFilt(profile.cityId);
+    }
+  }, [profile]);
 
   useEffect(() => {
     if (!profile) return;
@@ -65,10 +77,14 @@ export default function Dashboard() {
   const citiesList = Array.from(new Set(issues.filter(i => guildFilt === 'all' || i.guildId === guildFilt).map(i => ({ id: i.cityId, name: i.cityName })).filter(i => i.id)));
   const uniqueCities = Array.from(new Map(citiesList.map((item: any) => [item.id, item])).values()) as {id: string, name: string}[];
 
+  const areasList = Array.from(new Set(issues.filter(i => (guildFilt === 'all' || i.guildId === guildFilt) && (cityFilt === 'all' || i.cityId === cityFilt)).map(i => ({ id: i.areaId, name: i.areaName })).filter(i => i.id || i.name)));
+  const uniqueAreas = Array.from(new Map(areasList.map((item: any) => [item.id || item.name, item])).values()) as {id: string, name: string}[];
+
   const filteredIssues = useMemo(() => {
     return issues.filter(issue => {
       if (guildFilt !== 'all' && issue.guildId !== guildFilt) return false;
       if (cityFilt !== 'all' && issue.cityId !== cityFilt) return false;
+      if (areaFilt !== 'all' && issue.areaId !== areaFilt && issue.areaName !== areaFilt) return false;
       
       if (!issue.createdAt) return true;
       const date = issue.createdAt.toDate ? issue.createdAt.toDate() : new Date(issue.createdAt);
@@ -80,7 +96,7 @@ export default function Dashboard() {
       }
       return true;
     });
-  }, [issues, month, year, week, guildFilt, cityFilt]);
+  }, [issues, month, year, week, guildFilt, cityFilt, areaFilt]);
 
   const stats = {
     active: filteredIssues.filter(i => i.status !== 'resolved' && i.status !== 'closed').length,
@@ -129,6 +145,46 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-10">
+      {isDivisionHead && (
+        <div className="bg-gradient-to-r from-blue-700 via-indigo-700 to-primary-700 rounded-3xl p-6 md:p-8 text-white shadow-xl shadow-blue-900/10 relative overflow-hidden flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
+          <div className="relative z-10 space-y-2">
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/20 backdrop-blur-md text-xs font-bold tracking-wider uppercase text-blue-100">
+              <Sparkles className="w-3.5 h-3.5 text-amber-300" />
+              Portal de Jefatura de División
+            </div>
+            <h1 className="text-2xl md:text-3xl font-black tracking-tight text-white">
+              {profile?.areaName || 'Mi División'}
+            </h1>
+            <p className="text-sm text-blue-100/90 font-medium flex items-center gap-3 flex-wrap">
+              {profile?.cityName && (
+                <span className="flex items-center gap-1.5"><MapPin className="w-4 h-4 text-emerald-300" /> {profile.cityName}</span>
+              )}
+              <span className="flex items-center gap-1.5"><Briefcase className="w-4 h-4 text-blue-300" /> {profile?.guildId}</span>
+              <span className="opacity-60">•</span>
+              <span>Monitoreo en tiempo real de tickets de tu equipo</span>
+            </p>
+          </div>
+          <div className="flex items-center gap-3 flex-wrap relative z-10 w-full md:w-auto">
+            <Link
+              to="/issues"
+              className="flex-1 md:flex-initial flex items-center justify-center gap-2 px-5 py-3 rounded-2xl bg-white text-blue-700 font-black text-xs uppercase tracking-wider hover:bg-blue-50 transition-all shadow-md active:scale-95"
+            >
+              <ListTodo className="w-4 h-4" />
+              Ver Tickets de mi División
+              <ArrowRight className="w-3.5 h-3.5" />
+            </Link>
+            <Link
+              to={`/quick-report?guild=${encodeURIComponent(profile?.guildId || '')}&city=${encodeURIComponent(profile?.cityId || '')}&area=${encodeURIComponent(profile?.areaId || '')}`}
+              target="_blank"
+              className="flex-1 md:flex-initial flex items-center justify-center gap-2 px-5 py-3 rounded-2xl bg-white/10 hover:bg-white/20 border border-white/20 text-white font-black text-xs uppercase tracking-wider backdrop-blur-md transition-all active:scale-95"
+            >
+              <QrCode className="w-4 h-4 text-emerald-300" />
+              Punto QR / Reporte Rápido
+            </Link>
+          </div>
+        </div>
+      )}
+
       <div className="flex flex-col md:flex-row justify-end items-start md:items-center gap-4">
         <div className="flex items-center gap-4 flex-wrap w-full md:w-auto">
            <div className="flex bg-white rounded-2xl border border-slate-200 p-2 shadow-sm gap-2">
@@ -189,6 +245,19 @@ export default function Dashboard() {
                  {uniqueCities.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
              </select>
            </div>
+
+           {(!isDivisionHead || uniqueAreas.length > 1) && (
+             <div className="flex bg-white rounded-2xl border border-slate-200 p-1 shadow-sm h-[42px] items-center">
+               <select 
+                   value={areaFilt} 
+                   onChange={e => setAreaFilt(e.target.value)}
+                   className="text-xs font-bold text-slate-600 outline-none bg-transparent px-2 cursor-pointer h-full"
+                 >
+                   <option value="all">División: Todas</option>
+                   {uniqueAreas.map(a => <option key={a.id || a.name} value={a.id || a.name || ''}>{a.name || a.id}</option>)}
+               </select>
+             </div>
+           )}
         </div>
       </div>
 

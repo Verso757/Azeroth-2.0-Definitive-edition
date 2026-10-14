@@ -2,12 +2,13 @@ import React, { useEffect, useState, useRef } from 'react';
 import { collection, onSnapshot, query, orderBy, doc, updateDoc, serverTimestamp, setDoc, addDoc, getDocs, deleteDoc, where } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useAuth } from '../AuthContext';
-import { Issue, OperationType, UserProfile, Area } from '../types';
+import { Issue, OperationType, UserProfile, Area, City, Employee } from '../types';
 import { handleFirestoreError } from '../constants';
-import { ShieldCheck, MessageSquare, ArrowRight, UserCheck, Search, Users, LayoutGrid, Trash2, Plus, Settings2, Activity, Loader2, PenTool, X } from 'lucide-react';
+import { ShieldCheck, MessageSquare, ArrowRight, UserCheck, Search, Users, LayoutGrid, Trash2, Plus, Settings2, Activity, Loader2, PenTool, X, QrCode, MapPin, CheckCircle, Sparkles } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn, formatDate } from '../lib/utils';
 import DataConfig from '../components/DataConfig';
+import QRGenerator from '../components/QRGenerator';
 import SignatureCanvas from 'react-signature-canvas';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { storage } from '../firebase';
@@ -17,15 +18,17 @@ export default function AdminPanel() {
   const [issues, setIssues] = useState<Issue[]>([]);
   const [users, setUsers] = useState<UserProfile[]>([]);
   const [areas, setAreas] = useState<Area[]>([]);
-  const [employees, setEmployees] = useState<any[]>([]);
+  const [cities, setCities] = useState<City[]>([]);
+  const [employees, setEmployees] = useState<Employee[]>([]);
   const [equipmentTypes, setEquipmentTypes] = useState<any[]>([]);
   const [guilds, setGuilds] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'issues' | 'users' | 'areas' | 'settings' | 'guilds' | 'catalogs'>('issues');
+  const [activeTab, setActiveTab] = useState<'issues' | 'users' | 'areas' | 'settings' | 'guilds' | 'catalogs' | 'qr'>('issues');
   const [activeCatalog, setActiveCatalog] = useState<'cities' | 'routes' | 'categories' | 'motifs' | 'brands' | 'employees' | 'equipmentTypes'>('cities');
   const [resolvingId, setResolvingId] = useState<string | null>(null);
   const [resolutionText, setResolutionText] = useState('');
   const [selectedAdminGuild, setSelectedAdminGuild] = useState<string>('');
+  const [batchAssignModalOpen, setBatchAssignModalOpen] = useState(false);
 
   const [newAreaName, setNewAreaName] = useState('');
   const [newGuildCode, setNewGuildCode] = useState('');
@@ -72,6 +75,7 @@ export default function AdminPanel() {
     let issuesQuery = query(collection(db, 'issues'), where('guildId', '==', selectedAdminGuild));
     let usersQuery = query(collection(db, 'users'), where('guildId', '==', selectedAdminGuild));
     let areasQuery = query(collection(db, 'areas'), where('guildId', '==', selectedAdminGuild));
+    let citiesQuery = query(collection(db, 'cities'), where('guildId', '==', selectedAdminGuild));
     let employeesQuery = query(collection(db, 'employees'), where('guildId', '==', selectedAdminGuild));
     let equipmentTypesQuery = query(collection(db, 'equipmentTypes'), where('guildId', '==', selectedAdminGuild));
 
@@ -100,8 +104,12 @@ export default function AdminPanel() {
       setAreas(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Area[]);
     });
 
+    const unsubCities = onSnapshot(citiesQuery, (snapshot) => {
+      setCities(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as City[]);
+    });
+
     const unsubEmployees = onSnapshot(employeesQuery, (snapshot) => {
-      setEmployees(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+      setEmployees(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Employee[]);
     });
 
     const unsubEquipmentTypes = onSnapshot(equipmentTypesQuery, (snapshot) => {
@@ -120,6 +128,7 @@ export default function AdminPanel() {
       unsubIssues();
       unsubUsers();
       unsubAreas();
+      unsubCities();
       unsubEmployees();
       unsubEquipmentTypes();
       unsubSettings();
@@ -243,9 +252,33 @@ export default function AdminPanel() {
   };
 
   const handleUpdateUserRole = async (userId: string, newRole: string) => {
-    if (profile?.role !== 'superadmin') return;
+    if (!profile || (profile.role !== 'superadmin' && profile.role !== 'admin')) return;
     try {
       await updateDoc(doc(db, 'users', userId), { role: newRole });
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleUpdateUserArea = async (userId: string, areaId: string) => {
+    try {
+      const area = areas.find(a => a.id === areaId);
+      await updateDoc(doc(db, 'users', userId), { 
+        areaId: areaId || null, 
+        areaName: area?.name || null 
+      });
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleUpdateUserCity = async (userId: string, cityId: string) => {
+    try {
+      const city = cities.find(c => c.id === cityId);
+      await updateDoc(doc(db, 'users', userId), { 
+        cityId: cityId || null, 
+        cityName: city?.name || null 
+      });
     } catch (err) {
       console.error(err);
     }
@@ -279,6 +312,7 @@ export default function AdminPanel() {
           <TabButton active={activeTab === 'users'} onClick={() => setActiveTab('users')} icon={Users} label="Usuarios" />
           <TabButton active={activeTab === 'areas'} onClick={() => setActiveTab('areas')} icon={LayoutGrid} label="Divisiones" />
           <TabButton active={activeTab === 'catalogs'} onClick={() => setActiveTab('catalogs')} icon={LayoutGrid} label="Catálogos" />
+          <TabButton active={activeTab === 'qr'} onClick={() => setActiveTab('qr')} icon={QrCode} label="Puntos QR" />
           <TabButton active={activeTab === 'settings'} onClick={() => setActiveTab('settings')} icon={Settings2} label="Ajustes" />
           {profile?.role === 'superadmin' && (
             <TabButton active={activeTab === 'guilds'} onClick={() => setActiveTab('guilds')} icon={ShieldCheck} label="Empresas" />
@@ -328,20 +362,21 @@ export default function AdminPanel() {
             <table className="w-full text-left">
               <thead>
                 <tr className="bg-slate-50 border-b border-slate-200">
-                  <th className="px-8 py-6 text-xs font-black text-slate-500 uppercase tracking-widest">Colaborador</th>
-                  <th className="px-8 py-6 text-xs font-black text-slate-500 uppercase tracking-widest">Rol</th>
+                  <th className="px-6 py-5 text-xs font-black text-slate-500 uppercase tracking-widest">Colaborador</th>
+                  <th className="px-6 py-5 text-xs font-black text-slate-500 uppercase tracking-widest">Rol</th>
+                  <th className="px-6 py-5 text-xs font-black text-slate-500 uppercase tracking-widest">División Asignada</th>
+                  <th className="px-6 py-5 text-xs font-black text-slate-500 uppercase tracking-widest">Ciudad Asignada</th>
                   {profile.role === 'superadmin' && (
-                    <th className="px-8 py-6 text-xs font-black text-slate-500 uppercase tracking-widest">Empresas Extra</th>
+                    <th className="px-6 py-5 text-xs font-black text-slate-500 uppercase tracking-widest">Empresas Extra</th>
                   )}
-                  <th className="px-8 py-6 text-xs font-black text-slate-500 uppercase tracking-widest">Registro</th>
-                  <th className="px-8 py-6 text-xs font-black text-slate-500 uppercase tracking-widest text-right">Opciones</th>
+                  <th className="px-6 py-5 text-xs font-black text-slate-500 uppercase tracking-widest">Registro</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 text-slate-900">
                 {users.map(user => (
                   <tr key={user.uid} className="hover:bg-slate-50 transition-colors">
-                    <td className="px-8 py-6">
-                      <div className="flex items-center gap-4">
+                    <td className="px-6 py-5">
+                      <div className="flex items-center gap-3">
                          <div className="w-10 h-10 rounded-xl bg-primary-50 border border-primary-100 text-primary-600 flex items-center justify-center font-black uppercase shadow-sm">
                            {user.displayName?.charAt(0)}
                          </div>
@@ -351,44 +386,72 @@ export default function AdminPanel() {
                          </div>
                       </div>
                     </td>
-                    <td className="px-8 py-6">
-                       {profile.role === 'superadmin' ? (
+                    <td className="px-6 py-5">
+                       {profile.role === 'superadmin' || profile.role === 'admin' ? (
                          <select
                            value={user.role}
                            onChange={(e) => handleUpdateUserRole(user.uid, e.target.value)}
-                           className="bg-slate-50 border border-slate-200 text-slate-700 text-xs rounded-xl focus:ring-primary-500 font-bold p-2"
+                           className={cn(
+                             "border text-xs rounded-xl font-black p-2 outline-none cursor-pointer transition-colors",
+                             user.role === 'division_head' ? "bg-indigo-50 border-indigo-200 text-indigo-700" :
+                             user.role === 'admin' ? "bg-primary-50 border-primary-200 text-primary-700" :
+                             user.role === 'superadmin' ? "bg-purple-50 border-purple-200 text-purple-700" :
+                             "bg-slate-50 border-slate-200 text-slate-700"
+                           )}
                          >
                            <option value="user">USER</option>
+                           <option value="division_head">JEFE DE DIVISIÓN</option>
                            <option value="admin">ADMIN</option>
-                           <option value="superadmin">SUPERADMIN</option>
+                           {profile.role === 'superadmin' && <option value="superadmin">SUPERADMIN</option>}
                          </select>
                        ) : (
                          <span className={cn(
                            "px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest",
-                           user.role === 'admin' ? "bg-primary-600 text-white" : "bg-slate-100 text-slate-600 border border-slate-200"
+                           user.role === 'division_head' ? "bg-indigo-100 text-indigo-700" :
+                           user.role === 'admin' ? "bg-primary-600 text-white" : 
+                           "bg-slate-100 text-slate-600 border border-slate-200"
                          )}>
                            {user.role}
                          </span>
                        )}
                     </td>
+                    <td className="px-6 py-5">
+                      <select
+                        value={user.areaId || ''}
+                        onChange={(e) => handleUpdateUserArea(user.uid, e.target.value)}
+                        className="bg-white border border-slate-200 text-slate-800 text-xs rounded-xl p-2 font-bold outline-none focus:ring-2 focus:ring-primary-500 cursor-pointer shadow-xs"
+                      >
+                        <option value="">(Sin División fija)</option>
+                        {areas.map(a => (
+                          <option key={a.id} value={a.id}>{a.name}</option>
+                        ))}
+                      </select>
+                    </td>
+                    <td className="px-6 py-5">
+                      <select
+                        value={user.cityId || ''}
+                        onChange={(e) => handleUpdateUserCity(user.uid, e.target.value)}
+                        className="bg-white border border-slate-200 text-slate-800 text-xs rounded-xl p-2 font-bold outline-none focus:ring-2 focus:ring-primary-500 cursor-pointer shadow-xs"
+                      >
+                        <option value="">(Sin Ciudad fija)</option>
+                        {cities.map(c => (
+                          <option key={c.id} value={c.id}>{c.name}</option>
+                        ))}
+                      </select>
+                    </td>
                     {profile.role === 'superadmin' && (
-                      <td className="px-8 py-6">
+                      <td className="px-6 py-5">
                         <input
                           type="text"
                           defaultValue={user.allowedGuilds?.join(', ') || ''}
                           onBlur={(e) => handleUpdateUserGuilds(user.uid, e.target.value)}
                           placeholder="EMP1, EMP2"
-                          className="bg-white border border-slate-200 text-slate-700 text-xs rounded-xl p-2 w-32 focus:ring-2 focus:ring-primary-500 outline-none uppercase font-mono"
+                          className="bg-white border border-slate-200 text-slate-700 text-xs rounded-xl p-2 w-28 focus:ring-2 focus:ring-primary-500 outline-none uppercase font-mono"
                         />
                       </td>
                     )}
-                    <td className="px-8 py-6 text-xs font-bold text-slate-500">
+                    <td className="px-6 py-5 text-xs font-bold text-slate-500">
                        {formatDate(user.createdAt)}
-                    </td>
-                    <td className="px-8 py-6 text-right">
-                       <button className="p-2 hover:bg-slate-100 rounded-xl transition-colors text-slate-400 hover:text-primary-600">
-                         <Settings2 className="w-5 h-5" />
-                       </button>
                     </td>
                   </tr>
                 ))}
@@ -572,24 +635,78 @@ export default function AdminPanel() {
                 )}
 
                 {activeCatalog === 'employees' && (
-                  <DataConfig 
-                    collectionName="employees" 
-                    title="Personal / Asesores" 
-                    fields={[ 
-                      { name: 'name', label: 'Nombre Completo' },
-                      { name: 'position', label: 'Cargo o Puesto', type: 'select', options: [{value: 'Supervisor', label:'Supervisor'}, {value: 'Administrativo', label:'Administrativo'}] } 
-                    ]} 
-                    selectedGuild={selectedAdminGuild}
-                    extraActions={[
-                      { 
-                        icon: <PenTool className="w-3.5 h-3.5" />, 
-                        title: "Firmar Documentos", 
-                        onClick: (item) => setSigningEmployee(item)
-                      }
-                    ]}
-                  />
+                  <div className="space-y-4">
+                    <div className="bg-gradient-to-r from-indigo-50 to-primary-50 border border-indigo-100 rounded-2xl p-4 flex flex-col sm:flex-row items-center justify-between gap-4">
+                      <div className="space-y-1">
+                        <h4 className="text-sm font-black text-slate-800 uppercase tracking-tight flex items-center gap-2">
+                          <Sparkles className="w-4 h-4 text-indigo-600" /> Asignación Rápida de Sucursal y División
+                        </h4>
+                        <p className="text-xs text-slate-600 font-medium">
+                          Vincula al personal existente y nuevo a una Ciudad y División para que aparezcan en los Códigos QR de su área.
+                        </p>
+                      </div>
+                      <button
+                        onClick={() => setBatchAssignModalOpen(true)}
+                        className="py-2.5 px-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-black uppercase tracking-wider shadow-sm transition-all shrink-0 cursor-pointer flex items-center gap-1.5"
+                      >
+                        <Users className="w-4 h-4" /> Vincular Personal ({employees.length})
+                      </button>
+                    </div>
+
+                    <DataConfig 
+                      collectionName="employees" 
+                      title="Personal / Asesores" 
+                      fields={[ 
+                        { name: 'name', label: 'Nombre Completo' },
+                        { 
+                          name: 'position', 
+                          label: 'Cargo / Puesto', 
+                          type: 'select', 
+                          options: [
+                            { value: 'Jefe de División', label: 'Jefe de División' },
+                            { value: 'Supervisor', label: 'Supervisor' },
+                            { value: 'Asesor / Técnico', label: 'Asesor / Técnico' },
+                            { value: 'Operador', label: 'Operador' },
+                            { value: 'Administrativo', label: 'Administrativo' }
+                          ] 
+                        },
+                        { 
+                          name: 'cityId', 
+                          label: 'Ciudad / Sucursal', 
+                          type: 'select', 
+                          options: cities.map(c => ({ value: c.id, label: c.name })) 
+                        },
+                        { 
+                          name: 'areaId', 
+                          label: 'Área / División', 
+                          type: 'select', 
+                          options: areas.map(a => ({ value: a.id, label: a.name })) 
+                        }
+                      ]} 
+                      selectedGuild={selectedAdminGuild}
+                      extraActions={[
+                        { 
+                          icon: <PenTool className="w-3.5 h-3.5" />, 
+                          title: "Firmar Documentos", 
+                          onClick: (item) => setSigningEmployee(item)
+                        }
+                      ]}
+                    />
+                  </div>
                 )}
              </div>
+          </motion.div>
+        )}
+
+        {activeTab === 'qr' && (
+          <motion.div key="qr" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }}>
+            <QRGenerator 
+              guildId={selectedAdminGuild} 
+              guildName={guilds.find(g => g.id === selectedAdminGuild)?.name || selectedAdminGuild}
+              cities={cities}
+              areas={areas}
+              employees={employees}
+            />
           </motion.div>
         )}
 
@@ -678,6 +795,154 @@ export default function AdminPanel() {
                   className="px-4 py-2 text-sm font-medium text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg transition-colors flex-1 flex items-center justify-center shrink-0"
                 >
                   {savingSignature ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Guardar Firma'}
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Batch Assign Modal */}
+      <AnimatePresence>
+        {batchAssignModalOpen && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-white rounded-3xl p-6 md:p-8 w-full max-w-4xl shadow-2xl border border-slate-200 flex flex-col max-h-[85vh] overflow-hidden"
+            >
+              <div className="flex items-center justify-between pb-4 border-b border-slate-100 mb-4">
+                <div className="space-y-1">
+                  <span className="text-[10px] font-black uppercase tracking-widest text-indigo-600">Gestión de Personal</span>
+                  <h3 className="text-xl font-black text-slate-900 tracking-tight flex items-center gap-2">
+                    <Users className="w-5 h-5 text-indigo-600" /> Vincular Personal a Ciudad y División
+                  </h3>
+                  <p className="text-xs text-slate-500 font-medium">
+                    Asigna rápidamente a cada colaborador su sucursal y área de trabajo para que aparezcan en los Códigos QR en sitio.
+                  </p>
+                </div>
+                <button 
+                  onClick={() => setBatchAssignModalOpen(false)}
+                  className="p-2 hover:bg-slate-100 rounded-xl text-slate-400 hover:text-slate-600 transition-colors"
+                >
+                  <X className="w-6 h-6" />
+                </button>
+              </div>
+
+              <div className="flex-1 overflow-y-auto space-y-3 custom-scrollbar pr-1">
+                {employees.length === 0 ? (
+                  <div className="p-12 text-center text-slate-400 font-medium">
+                    No hay colaboradores dados de alta en este momento.
+                  </div>
+                ) : (
+                  <div className="border border-slate-200 rounded-2xl overflow-hidden">
+                    <table className="w-full text-left text-xs">
+                      <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 font-black uppercase tracking-wider text-[10px]">
+                        <tr>
+                          <th className="px-4 py-3">Nombre</th>
+                          <th className="px-4 py-3">Cargo / Puesto</th>
+                          <th className="px-4 py-3">Ciudad / Sucursal</th>
+                          <th className="px-4 py-3">Área / División</th>
+                          <th className="px-4 py-3 text-center">Estado QR</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 font-medium text-slate-800">
+                        {employees.map(emp => {
+                          const isComplete = Boolean(emp.cityId && emp.areaId);
+                          return (
+                            <tr key={emp.id} className="hover:bg-slate-50/80 transition-colors">
+                              <td className="px-4 py-3 font-bold text-slate-900">
+                                {emp.name}
+                              </td>
+                              <td className="px-4 py-3">
+                                <select
+                                  value={emp.position || ''}
+                                  onChange={async (e) => {
+                                    await updateDoc(doc(db, 'employees', emp.id), {
+                                      position: e.target.value,
+                                      updatedAt: serverTimestamp()
+                                    });
+                                  }}
+                                  className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 font-bold text-xs outline-none focus:ring-1 focus:ring-indigo-500"
+                                >
+                                  <option value="">(Sin Puesto)</option>
+                                  <option value="Jefe de División">Jefe de División</option>
+                                  <option value="Supervisor">Supervisor</option>
+                                  <option value="Asesor / Técnico">Asesor / Técnico</option>
+                                  <option value="Operador">Operador</option>
+                                  <option value="Administrativo">Administrativo</option>
+                                </select>
+                              </td>
+                              <td className="px-4 py-3">
+                                <select
+                                  value={emp.cityId || ''}
+                                  onChange={async (e) => {
+                                    const val = e.target.value;
+                                    const c = cities.find(x => x.id === val);
+                                    await updateDoc(doc(db, 'employees', emp.id), {
+                                      cityId: val || null,
+                                      cityName: c?.name || null,
+                                      updatedAt: serverTimestamp()
+                                    });
+                                  }}
+                                  className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 font-bold text-xs outline-none focus:ring-1 focus:ring-indigo-500"
+                                >
+                                  <option value="">(Seleccionar Ciudad)</option>
+                                  {cities.map(c => (
+                                    <option key={c.id} value={c.id}>{c.name}</option>
+                                  ))}
+                                </select>
+                              </td>
+                              <td className="px-4 py-3">
+                                <select
+                                  value={emp.areaId || ''}
+                                  onChange={async (e) => {
+                                    const val = e.target.value;
+                                    const a = areas.find(x => x.id === val);
+                                    await updateDoc(doc(db, 'employees', emp.id), {
+                                      areaId: val || null,
+                                      areaName: a?.name || null,
+                                      updatedAt: serverTimestamp()
+                                    });
+                                  }}
+                                  className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 font-bold text-xs outline-none focus:ring-1 focus:ring-indigo-500"
+                                >
+                                  <option value="">(Seleccionar División)</option>
+                                  {areas.map(a => (
+                                    <option key={a.id} value={a.id}>{a.name}</option>
+                                  ))}
+                                </select>
+                              </td>
+                              <td className="px-4 py-3 text-center">
+                                {isComplete ? (
+                                  <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 font-black text-[10px] uppercase">
+                                    <CheckCircle className="w-3 h-3" /> Vinculado
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-amber-50 text-amber-700 border border-amber-200 font-bold text-[10px] uppercase">
+                                    Pendiente
+                                  </span>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+
+              <div className="pt-4 border-t border-slate-100 flex items-center justify-between text-xs">
+                <span className="text-slate-400 font-bold">
+                  {employees.filter(e => e.cityId && e.areaId).length} de {employees.length} colaboradores listos para QR en sucursal
+                </span>
+                <button
+                  onClick={() => setBatchAssignModalOpen(false)}
+                  className="py-2.5 px-6 bg-slate-900 text-white rounded-xl font-black uppercase tracking-wider text-xs hover:bg-slate-800 transition-all cursor-pointer"
+                >
+                  Cerrar y Guardar
                 </button>
               </div>
             </motion.div>

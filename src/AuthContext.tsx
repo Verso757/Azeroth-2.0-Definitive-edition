@@ -10,6 +10,7 @@ interface AuthContextType {
   loading: boolean;
   isAdmin: boolean;
   isSuperAdmin: boolean;
+  isDivisionHead: boolean;
   loginWithGoogle: (isSignup: boolean, providedGuildId?: string) => Promise<void>;
   logout: () => Promise<void>;
 }
@@ -118,6 +119,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       loading, 
       isAdmin: profile?.role === 'admin' || profile?.role === 'superadmin',
       isSuperAdmin: profile?.role === 'superadmin',
+      isDivisionHead: profile?.role === 'division_head',
       loginWithGoogle,
       logout 
     }}>

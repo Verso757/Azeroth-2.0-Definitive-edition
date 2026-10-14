@@ -4,7 +4,7 @@ import { db } from '../firebase';
 import { useAuth } from '../AuthContext';
 import { Issue, IssueEvent, IssueStatus, OperationType } from '../types';
 import { handleFirestoreError } from '../constants';
-import { Filter, Search, Clock, CheckCircle2, AlertTriangle, MoreHorizontal, XCircle, MessageSquare, UserPlus, ArrowRight, Tag, ChevronRight, X, Download, PlusSquare } from 'lucide-react';
+import { Filter, Search, Clock, CheckCircle2, AlertTriangle, MoreHorizontal, XCircle, MessageSquare, UserPlus, ArrowRight, Tag, ChevronRight, X, Download, PlusSquare, LayoutGrid, QrCode } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn, formatDate, exportToCSV } from '../lib/utils';
 
@@ -30,7 +30,15 @@ export default function Issues() {
 
   const [guildFilt, setGuildFilt] = useState('all');
   const [cityFilt, setCityFilt] = useState('all');
+  const [areaFilt, setAreaFilt] = useState('all');
   const [statusFilt, setStatusFilt] = useState<'active' | 'all'>('active');
+
+  useEffect(() => {
+    if (profile?.role === 'division_head' && (profile?.areaId || profile?.areaName)) {
+      setAreaFilt(profile.areaId || profile.areaName || 'all');
+      setStatusFilt('all'); // Show all tickets (open, in_progress, and resolved) for their division
+    }
+  }, [profile]);
 
   useEffect(() => {
     if (!profile) return;
@@ -82,6 +90,9 @@ export default function Issues() {
   // Make citiesList unique by id
   const uniqueCities = Array.from(new Map(citiesList.map((item: any) => [item.id, item])).values()) as {id: string | null, name: string | null}[];
 
+  const areasList = Array.from(new Set(issues.filter(i => (guildFilt === 'all' || i.guildId === guildFilt) && (cityFilt === 'all' || i.cityId === cityFilt)).map(i => ({ id: i.areaId, name: i.areaName })).filter(i => i.id || i.name)));
+  const uniqueAreas = Array.from(new Map(areasList.map((item: any) => [item.id || item.name, item])).values()) as {id: string | null, name: string | null}[];
+
   const filteredIssues = issues.filter(issue => {
     const matchesSearch = issue.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
                           issue.areaName.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -91,6 +102,7 @@ export default function Issues() {
 
     if (guildFilt !== 'all' && issue.guildId !== guildFilt) return false;
     if (cityFilt !== 'all' && issue.cityId !== cityFilt) return false;
+    if (areaFilt !== 'all' && issue.areaId !== areaFilt && issue.areaName !== areaFilt) return false;
 
     if (!issue.createdAt) return true;
     const date = issue.createdAt.toDate ? issue.createdAt.toDate() : new Date(issue.createdAt);
@@ -421,6 +433,17 @@ export default function Issues() {
 
           <div className="flex bg-white rounded-2xl border border-slate-200 p-1 shadow-sm">
             <select 
+                value={areaFilt} 
+                onChange={e => setAreaFilt(e.target.value)}
+                className="text-xs font-bold text-slate-600 outline-none bg-transparent px-2 py-1 cursor-pointer w-auto"
+              >
+                <option value="all">División: Todas</option>
+                {uniqueAreas.map(a => <option key={a.id || a.name} value={a.id || a.name || ''}>{a.name}</option>)}
+            </select>
+          </div>
+
+          <div className="flex bg-white rounded-2xl border border-slate-200 p-1 shadow-sm">
+            <select 
                 value={statusFilt} 
                 onChange={e => setStatusFilt(e.target.value as 'active' | 'all')}
                 className="text-xs font-bold text-slate-600 outline-none bg-transparent px-2 py-1 cursor-pointer w-auto"
@@ -442,6 +465,34 @@ export default function Issues() {
           </div>
         </div>
       </div>
+
+      {profile?.role === 'division_head' && (
+        <div className="bg-gradient-to-r from-indigo-50 to-blue-50 border border-indigo-200 rounded-3xl p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-xs">
+          <div className="flex items-center gap-4">
+            <div className="w-12 h-12 rounded-2xl bg-indigo-600 text-white flex items-center justify-center font-black shadow-md shadow-indigo-600/20 shrink-0">
+              <LayoutGrid className="w-6 h-6" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="px-2.5 py-0.5 bg-indigo-100 text-indigo-800 rounded-md text-[10px] font-black uppercase tracking-wider">
+                  Jefe de División
+                </span>
+                <h3 className="text-base font-black text-slate-900 uppercase tracking-tight">
+                  División: {profile.areaName || profile.areaId || 'General'}
+                </h3>
+              </div>
+              <p className="text-xs text-slate-600 font-medium mt-0.5">
+                Supervisión centralizada de todas las incidencias abiertas y resueltas de tu división.
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 self-end sm:self-auto">
+            <span className="px-3 py-1.5 bg-white border border-indigo-200 text-indigo-700 rounded-xl text-xs font-black uppercase tracking-wider shadow-xs">
+              {filteredIssues.length} Incidencias
+            </span>
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 gap-4">
         {loading ? (

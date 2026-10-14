@@ -4,8 +4,8 @@ import { collection, addDoc, serverTimestamp, query, where, onSnapshot, getDocs 
 import { db } from '../firebase';
 import { useAuth } from '../AuthContext';
 import { handleFirestoreError } from '../constants';
-import { OperationType, IssuePriority, Area, City, Category } from '../types';
-import { AlertCircle, CheckCircle2, ChevronRight, Save, User } from 'lucide-react';
+import { OperationType, IssuePriority, Area, City, Category, Employee } from '../types';
+import { AlertCircle, CheckCircle2, ChevronRight, Save, User, Users } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 
@@ -17,6 +17,7 @@ export default function NewIssue() {
   const [areas, setAreas] = useState<Area[]>([]);
   const [cities, setCities] = useState<City[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
+  const [employees, setEmployees] = useState<Employee[]>([]);
   const [guilds, setGuilds] = useState<any[]>([]);
 
   const [selectedGuild, setSelectedGuild] = useState<string>('');
@@ -59,8 +60,11 @@ export default function NewIssue() {
     const unsubCat = onSnapshot(query(collection(db, 'categories'), where('guildId', '==', selectedGuild)), snap => {
       setCategories(snap.docs.map(d => ({ id: d.id, ...d.data() } as Category)).sort((a,b) => (a.name || '').localeCompare(b.name || '')));
     });
+    const unsubEmp = onSnapshot(query(collection(db, 'employees'), where('guildId', '==', selectedGuild)), snap => {
+      setEmployees(snap.docs.map(d => ({ id: d.id, ...d.data() } as Employee)).sort((a,b) => a.name.localeCompare(b.name)));
+    });
 
-    return () => { unsubAreas(); unsubCities(); unsubCat(); }
+    return () => { unsubAreas(); unsubCities(); unsubCat(); unsubEmp(); }
   }, [selectedGuild]);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -210,13 +214,45 @@ export default function NewIssue() {
 
         <div className="grid grid-cols-1 gap-6">
           <div className="space-y-2">
-            <label className="text-sm font-bold text-slate-700">Afectado / Reportó <span className="font-normal text-slate-400">(Opcional)</span></label>
+            <div className="flex items-center justify-between">
+              <label className="text-sm font-bold text-slate-700">Afectado / Reportó <span className="font-normal text-slate-400">(Opcional)</span></label>
+              {employees.length > 0 && (
+                <span className="text-xs text-primary-600 font-bold">
+                  {employees.filter(e => (!formData.cityId || e.cityId === formData.cityId) && (!formData.areaId || e.areaId === formData.areaId)).length} colaboradores en esta área
+                </span>
+              )}
+            </div>
+            
+            {/* Quick selector from matching employees */}
+            {employees.length > 0 && (
+              <div className="flex flex-wrap gap-1.5 mb-2 max-h-24 overflow-y-auto p-1 bg-slate-50 rounded-xl border border-slate-100">
+                {employees
+                  .filter(e => (!formData.cityId || e.cityId === formData.cityId) && (!formData.areaId || e.areaId === formData.areaId))
+                  .slice(0, 15)
+                  .map(emp => (
+                    <button
+                      type="button"
+                      key={emp.id}
+                      onClick={() => setFormData(prev => ({ ...prev, reportedBy: emp.name }))}
+                      className={cn(
+                        "px-2.5 py-1 rounded-lg text-xs font-bold transition-all border cursor-pointer",
+                        formData.reportedBy === emp.name
+                          ? "bg-primary-600 text-white border-primary-600 shadow-xs"
+                          : "bg-white text-slate-700 border-slate-200 hover:border-slate-300"
+                      )}
+                    >
+                      {emp.name} {emp.position && <span className="opacity-70 font-normal text-[10px]">({emp.position})</span>}
+                    </button>
+                  ))}
+              </div>
+            )}
+
             <div className="relative">
               <User className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
               <input
                 type="text"
-                className="w-full pl-11 pr-4 py-3 rounded-xl bg-white border border-slate-200 text-slate-900 focus:ring-2 focus:ring-primary-500 outline-none transition-all placeholder:text-slate-400"
-                placeholder="Ej: Juan Perez (Operador Torre 2)"
+                className="w-full pl-11 pr-4 py-3 rounded-xl bg-white border border-slate-200 text-slate-900 focus:ring-2 focus:ring-primary-500 outline-none transition-all placeholder:text-slate-400 font-medium"
+                placeholder="Escribe el nombre o selecciona de los botones superiores..."
                 value={formData.reportedBy}
                 onChange={e => setFormData(prev => ({ ...prev, reportedBy: e.target.value }))}
               />

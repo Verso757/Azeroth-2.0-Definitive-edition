@@ -21,6 +21,7 @@ import AssignAsset from './pages/AssignAsset';
 import AssetHistory from './pages/AssetHistory';
 
 import Reports from './pages/Reports';
+import QuickReport from './pages/QuickReport';
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const { profile, loading } = useAuth();
@@ -41,6 +42,7 @@ export default function App() {
       <Router>
         <Routes>
           <Route path="/auth" element={<AuthPage />} />
+          <Route path="/quick-report" element={<QuickReport />} />
           <Route path="/" element={<PrivateRoute><Layout /></PrivateRoute>}>
             <Route index element={<Dashboard />} />
             <Route path="issues" element={<Issues />} />

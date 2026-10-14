@@ -1,4 +1,4 @@
-export type UserRole = 'superadmin' | 'admin' | 'user';
+export type UserRole = 'superadmin' | 'admin' | 'division_head' | 'user';
 
 export interface UserProfile {
   uid: string;
@@ -9,6 +9,10 @@ export interface UserProfile {
   guildId: string;
   allowedGuilds?: string[];
   cityIds?: string[];
+  cityId?: string;
+  cityName?: string;
+  areaId?: string;
+  areaName?: string;
   createdAt: any;
 }
 
@@ -119,6 +123,10 @@ export interface Employee {
   guildId: string;
   name: string;
   position: string;
+  cityId?: string;
+  cityName?: string;
+  areaId?: string;
+  areaName?: string;
   signatureUrl?: string;
   createdAt: any;
   updatedAt: any;

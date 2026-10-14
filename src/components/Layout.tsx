@@ -69,7 +69,12 @@ export default function Layout() {
             <div className="flex items-center gap-3">
               <div className="text-right">
                 <p className="text-[10px] font-black text-slate-900 uppercase tracking-tight">{profile?.displayName || 'Usuario'}</p>
-                <p className="text-[9px] font-bold text-primary-500 uppercase tracking-widest">{profile?.role}</p>
+                <p className="text-[9px] font-bold text-primary-600 uppercase tracking-widest">
+                  {profile?.role === 'superadmin' ? 'Super Admin' : 
+                   profile?.role === 'admin' ? 'Administrador' : 
+                   profile?.role === 'division_head' ? `Jefe: ${profile.areaName || 'División'}` : 
+                   'Colaborador'}
+                </p>
               </div>
               <div className="w-10 h-10 rounded-xl bg-slate-50 border border-slate-100 overflow-hidden flex items-center justify-center text-primary-600 font-black shadow-sm">
                 {profile?.photoURL ? (
