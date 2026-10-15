@@ -46,7 +46,35 @@ export function exportToCSV(data: any[], filename: string) {
   const link = document.createElement('a');
   link.setAttribute('href', url);
   link.setAttribute('download', `${filename}.csv`);
-  document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);
+}
+
+export function normalizeEquipmentType(rawType?: string): string {
+  if (!rawType) return 'Otro';
+  const lower = rawType.toLowerCase().trim();
+  if (lower.includes('cel') || lower.includes('smart') || lower.includes('phone') || lower.includes('móvil') || lower.includes('movil')) {
+    return 'Celular';
+  }
+  if (lower.includes('impres') || lower.includes('print')) {
+    return 'Impresora Térmica';
+  }
+  if (lower.includes('tab')) {
+    return 'Tablet';
+  }
+  if (lower.includes('lap') || lower.includes('comput') || lower.includes('pc')) {
+    return 'Laptop / Computadora';
+  }
+  return rawType.trim();
+}
+
+export function formatBrandModel(brand?: string, model?: string): string {
+  const cleanBrand = (brand || '').trim();
+  const cleanModel = (model || '').trim();
+  if (!cleanBrand && !cleanModel) return 'Sin especificar';
+  if (cleanBrand && cleanModel) {
+    if (cleanBrand.toLowerCase().includes(cleanModel.toLowerCase())) return cleanBrand;
+    return `${cleanBrand} ${cleanModel}`;
+  }
+  return cleanBrand || cleanModel;
 }

@@ -6,7 +6,7 @@ import { EquipmentExchange, OperationType } from '../types';
 import { handleFirestoreError } from '../constants';
 import { Search, ChevronRight, Download, PlusSquare, ArrowLeftRight } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { cn, formatDate, exportToCSV } from '../lib/utils';
+import { cn, formatDate, exportToCSV, normalizeEquipmentType } from '../lib/utils';
 import { Link } from 'react-router-dom';
 
 const MONTHS = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
@@ -81,7 +81,7 @@ export default function Exchanges() {
         'Empresa/Ciudad': `${ex.cityName} - Ruta ${ex.routeName}`,
         'Quien Reporto': ex.userName,
         'Afectado': ex.affectedPerson,
-        'Equipo': ex.equipmentType,
+        'Equipo': normalizeEquipmentType(ex.equipmentType),
         'Marca': ex.brandName,
         'Motivo': ex.motifName,
         'Precio': ex.price ? `$ ${ex.price}` : '',
@@ -136,7 +136,7 @@ export default function Exchanges() {
               </div>
               <div class="bg-blue-50/50 p-6 rounded-2xl border border-blue-100">
                 <h3 class="text-[10px] font-black text-blue-400 uppercase tracking-widest mb-3">Detalles del Equipo</h3>
-                <p class="text-lg font-bold text-[#004B87] mb-1">${ex.equipmentType}</p>
+                <p class="text-lg font-bold text-[#004B87] mb-1">${normalizeEquipmentType(ex.equipmentType)}</p>
                 <p class="text-xs font-medium text-slate-500 mt-2">Marca / Modelo: <span class="text-slate-800 font-bold ml-1">${ex.brandName}</span></p>
                 <p class="text-xs font-medium text-slate-500 mt-1">Motivo de Cambio: <span class="text-slate-800 font-bold ml-1">${ex.motifName}</span></p>
                 ${ex.price ? `<div class="mt-3 inline-flex items-center gap-2 bg-[#E3182D]/10 text-[#E3182D] px-2.5 py-1.5 rounded-lg border border-[#E3182D]/20"><span class="text-[10px] font-black uppercase tracking-wider">Valor Declarado:</span><span class="text-xs font-black">$${ex.price.toFixed(2)} MXN</span></div>` : ''}
@@ -289,7 +289,7 @@ export default function Exchanges() {
                       <div className="text-xs text-slate-500">Rep: {ex.userName}</div>
                     </td>
                     <td className="px-6 py-4">
-                      <div className="font-semibold text-slate-700">{ex.equipmentType} - {ex.brandName}</div>
+                      <div className="font-semibold text-slate-700">{normalizeEquipmentType(ex.equipmentType)} - {ex.brandName}</div>
                       <div className="text-xs text-slate-500">Motivo: {ex.motifName}</div>
                     </td>
                     <td className="px-6 py-4">

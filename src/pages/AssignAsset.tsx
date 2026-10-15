@@ -2,10 +2,10 @@ import React, { useState, useEffect } from 'react';
 import { collection, query, where, getDocs, doc, writeBatch, serverTimestamp, getDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useAuth } from '../AuthContext';
-import { Asset, City, Route } from '../types';
+import { Asset, City, Route, Motif } from '../types';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, CheckCircle2, RotateCcw, PenTool, AlertTriangle, Activity, Upload } from 'lucide-react';
-import { cn } from '../lib/utils';
+import { ArrowLeft, CheckCircle2, RotateCcw, PenTool, AlertTriangle, Activity, Upload, RefreshCw, Loader2 } from 'lucide-react';
+import { cn, normalizeEquipmentType, formatBrandModel } from '../lib/utils';
 
 type Operation = 'assign' | 'return' | 'maintenance' | 'lost' | 'retirement';
 
@@ -68,6 +68,12 @@ export default function AssignAsset() {
   const [notes, setNotes] = useState('');
   const [evidenceBase64, setEvidenceBase64] = useState<string | null>(null);
 
+  const [motifs, setMotifs] = useState<Motif[]>([]);
+  const [motifId, setMotifId] = useState('');
+  const [previousAsset, setPreviousAsset] = useState<Asset | null>(null);
+  const [previousDeviceStatus, setPreviousDeviceStatus] = useState<'maintenance' | 'available' | 'retired'>('maintenance');
+  const [checkingPrevious, setCheckingPrevious] = useState(false);
+
   useEffect(() => {
     if (!profile || !id) return;
     
@@ -92,6 +98,9 @@ export default function AssignAsset() {
 
         const empSnap = await getDocs(query(collection(db, 'employees'), where('guildId', 'in', allowedGuilds.slice(0, 30))));
         setEmployees(empSnap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a:any, b:any) => (a.name || '').localeCompare(b.name || '')));
+
+        const motifSnap = await getDocs(query(collection(db, 'motifs'), where('guildId', 'in', allowedGuilds.slice(0, 30))));
+        setMotifs(motifSnap.docs.map(d => ({ id: d.id, ...d.data() } as Motif)).sort((a,b) => (a.name || '').localeCompare(b.name || '')));
       } catch (err) {
         console.error(err);
       }
@@ -100,6 +109,60 @@ export default function AssignAsset() {
     fetchAsset();
     fetchOptions();
   }, [profile, id]);
+
+  useEffect(() => {
+    const checkExistingEquipment = async () => {
+      if (operation !== 'assign') {
+        setPreviousAsset(null);
+        return;
+      }
+      const targetId = assignmentTarget === 'route' ? selectedRoute : selectedEmployee;
+      if (!targetId || !profile) {
+        setPreviousAsset(null);
+        return;
+      }
+
+      setCheckingPrevious(true);
+      try {
+        const allowedGuilds = profile.allowedGuilds ? [profile.guildId, ...profile.allowedGuilds] : [profile.guildId];
+        // Query assets for this route
+        const q = query(
+          collection(db, 'assets'),
+          where('guildId', 'in', allowedGuilds.slice(0, 30)),
+          where('currentRouteId', '==', targetId),
+          where('status', '==', 'assigned')
+        );
+        const snap = await getDocs(q);
+        const otherAssetDoc = snap.docs.find(d => d.id !== id);
+        if (otherAssetDoc) {
+          setPreviousAsset({ id: otherAssetDoc.id, ...otherAssetDoc.data() } as Asset);
+        } else {
+          // Check route_responsivas
+          const respDoc = await getDoc(doc(db, 'route_responsivas', targetId));
+          if (respDoc.exists() && respDoc.data()?.newEquipment && respDoc.data()?.newEquipment !== asset?.uid) {
+            const data = respDoc.data();
+            setPreviousAsset({
+              id: 'legacy_responsiva',
+              uid: data.newEquipment || 'Sin S/N',
+              type: data.equipmentType || 'Equipo',
+              brandName: data.brandName || '',
+              model: '',
+              status: 'assigned'
+            } as any);
+          } else {
+            setPreviousAsset(null);
+          }
+        }
+      } catch (err) {
+        console.error("Error checking previous asset in AssignAsset:", err);
+        setPreviousAsset(null);
+      } finally {
+        setCheckingPrevious(false);
+      }
+    };
+
+    checkExistingEquipment();
+  }, [operation, assignmentTarget, selectedRoute, selectedEmployee, profile, id, asset]);
 
   useEffect(() => {
     const fetchRoutes = async () => {
@@ -161,6 +224,10 @@ export default function AssignAsset() {
         alert("Selecciona al personal administrativo / asesor");
         return;
       }
+      if (previousAsset && !motifId) {
+        alert("Por favor selecciona el Motivo de Cambio para el equipo que se reemplaza.");
+        return;
+      }
     }
 
     if ((operation === 'lost' || operation === 'retirement') && !evidenceBase64) {
@@ -175,6 +242,7 @@ export default function AssignAsset() {
       const city = cities.find(c => c.id === selectedCity);
       const route = routes.find(r => r.id === selectedRoute);
       const employee = employees.find(e => e.id === selectedEmployee);
+      const motif = motifs.find(m => m.id === motifId);
 
       const toStatus = operation === 'assign' ? 'assigned' :
                        operation === 'return' ? 'available' :
@@ -213,12 +281,11 @@ export default function AssignAsset() {
 
       batch.update(doc(db, 'assets', asset.id), updateData);
 
-      const txRef = doc(collection(db, 'asset_transactions'));
-      
       const txRouteId = operation === 'assign' ? (assignmentTarget === 'route' ? selectedRoute : selectedEmployee) : (asset.currentRouteId || null);
       const txRouteName = operation === 'assign' ? (assignmentTarget === 'route' ? route?.name : employee?.name) : (asset.currentRouteName || null);
       const txSup = operation === 'assign' ? (assignmentTarget === 'route' ? supervisorName : employee?.name) : (asset.currentSupervisor || null);
       
+      const txRef = doc(collection(db, 'asset_transactions'));
       batch.set(txRef, {
         guildId: asset.guildId || profile.guildId || '',
         assetId: asset.id,
@@ -230,12 +297,76 @@ export default function AssignAsset() {
         routeId: txRouteId,
         routeName: txRouteName,
         supervisorName: txSup,
-        notes,
+        notes: notes || (previousAsset ? `Asignado por cambio (Motivo: ${motif?.name || ''})` : 'Movimiento de inventario'),
         evidenceImage: evidenceBase64 || null,
         recordedBy: profile.uid,
         recordedByName: profile.displayName || profile.email,
         createdAt: serverTimestamp()
       });
+
+      // Si había un equipo anterior en la ruta y se está asignando uno nuevo
+      if (operation === 'assign' && previousAsset && previousAsset.id !== 'legacy_responsiva') {
+        const prevAssetRef = doc(db, 'assets', previousAsset.id);
+        const prevUpdate: any = {
+          status: previousDeviceStatus,
+          currentRouteId: null,
+          currentRouteName: null,
+          currentCityId: null,
+          currentCityName: null,
+          currentSupervisor: null,
+          updatedAt: serverTimestamp(),
+        };
+        batch.update(prevAssetRef, prevUpdate);
+
+        const prevTxRef = doc(collection(db, 'asset_transactions'));
+        batch.set(prevTxRef, {
+          guildId: previousAsset.guildId || profile.guildId || '',
+          assetId: previousAsset.id,
+          assetUid: previousAsset.uid,
+          assetType: previousAsset.type,
+          type: previousDeviceStatus === 'maintenance' ? 'maintenance' : previousDeviceStatus === 'available' ? 'return' : 'retirement',
+          fromStatus: 'assigned',
+          toStatus: previousDeviceStatus,
+          routeId: txRouteId,
+          routeName: txRouteName,
+          supervisorName: txSup,
+          notes: `Retirado por cambio de equipo (Motivo: ${motif?.name || notes || 'Cambio'}). Reemplazado por: ${asset.uid}`,
+          recordedBy: profile.uid,
+          recordedByName: profile.displayName || profile.email,
+          createdAt: serverTimestamp()
+        });
+      }
+
+      // Si fue cambio o asignación con motivo, registrar en equipment_exchanges para reporteo y auditoría
+      if (operation === 'assign' && (previousAsset || motifId)) {
+        const fullBrandName = formatBrandModel(asset.brandName, asset.model);
+        const normalizedEquipmentType = normalizeEquipmentType(asset.type);
+
+        const exchangeRef = doc(collection(db, 'equipment_exchanges'));
+        batch.set(exchangeRef, {
+          guildId: asset.guildId || profile.guildId || '',
+          cityId: assignmentTarget === 'route' ? selectedCity : 'N/A',
+          cityName: assignmentTarget === 'route' ? (city?.name || '') : 'Administrativo',
+          routeId: txRouteId,
+          routeName: txRouteName,
+          equipmentType: normalizedEquipmentType,
+          brandId: asset.brandId || '',
+          brandName: fullBrandName,
+          motifId: motifId || '',
+          motifName: motif?.name || (previousAsset ? 'Cambio de equipo' : 'Asignación inicial'),
+          newEquipment: asset.uid || '',
+          previousEquipment: previousAsset?.uid || null,
+          previousEquipmentDetails: previousAsset ? `${normalizeEquipmentType(previousAsset.type)} ${formatBrandModel(previousAsset.brandName, previousAsset.model)}` : null,
+          previousEquipmentDestination: previousAsset ? previousDeviceStatus : null,
+          isExchange: !!previousAsset,
+          userId: profile.uid,
+          userName: profile.displayName || profile.email,
+          userEmail: profile.email || '',
+          affectedPerson: txSup,
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        });
+      }
 
       // Update route responsiva
       if (operation === 'assign') {
@@ -255,14 +386,17 @@ export default function AssignAsset() {
            }
         }
 
+        const fullBrandName = formatBrandModel(asset.brandName, asset.model);
+        const normalizedEquipmentType = normalizeEquipmentType(asset.type);
+
         batch.set(responsivaRef, {
           guildId: asset.guildId || profile.guildId || '',
           cityId: assignmentTarget === 'route' ? selectedCity : 'N/A',
           cityName: assignmentTarget === 'route' ? (city?.name || '') : 'Administrativo',
           routeId: respId,
           routeName: (assignmentTarget === 'route' ? route?.name : employee?.name) || '',
-          equipmentType: asset.type,
-          brandName: asset.brandName || '',
+          equipmentType: normalizedEquipmentType,
+          brandName: fullBrandName,
           newEquipment: asset.uid,
           userId: profile.uid,
           userName: profile.displayName || profile.email,
@@ -442,6 +576,75 @@ export default function AssignAsset() {
                    </select>
                  </div>
                )}
+
+                {/* Detección de equipo previo en la ruta / asesor */}
+                {checkingPrevious && (
+                  <div className="p-3 bg-slate-50 border border-slate-200 rounded-2xl flex items-center gap-2 text-xs text-slate-500 font-medium">
+                    <Loader2 className="w-4 h-4 animate-spin text-primary-500" />
+                    Consultando equipo actual asignado a la ruta...
+                  </div>
+                )}
+
+                {!checkingPrevious && previousAsset && (
+                  <div className="p-4 bg-amber-50/90 border border-amber-200 rounded-2xl space-y-3">
+                    <div className="flex items-start gap-3">
+                      <div className="p-2 bg-amber-100 rounded-xl text-amber-700">
+                        <RefreshCw className="w-5 h-5" />
+                      </div>
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2">
+                          <span className="px-2 py-0.5 text-[11px] font-black uppercase tracking-wider bg-amber-200 text-amber-900 rounded-md">
+                            Cambio Detectado
+                          </span>
+                          <span className="text-xs font-bold text-amber-800">Esta ruta ya cuenta con equipo asignado</span>
+                        </div>
+                        <p className="text-sm font-black text-slate-900 mt-1">
+                          {normalizeEquipmentType(previousAsset.type)}: {formatBrandModel(previousAsset.brandName, previousAsset.model)}
+                        </p>
+                        <p className="text-xs font-mono text-slate-600 mt-0.5">
+                          S/N o IMEI: <span className="font-bold">{previousAsset.uid}</span>
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="pt-2 border-t border-amber-200/60 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                      <label className="text-xs font-bold text-amber-900">
+                        ¿Qué destino tendrá el equipo retirado ({previousAsset.uid})?
+                      </label>
+                      <select
+                        value={previousDeviceStatus}
+                        onChange={(e) => setPreviousDeviceStatus(e.target.value as any)}
+                        className="bg-white border border-amber-300 text-slate-800 text-xs font-bold rounded-xl px-3 py-2 outline-none focus:border-amber-500"
+                      >
+                        <option value="maintenance">🛠️ Enviar a Taller / Mantenimiento</option>
+                        <option value="available">📦 Reingresar a Inventario Disponible</option>
+                        <option value="retired">❌ Dar de Baja / Retirar</option>
+                      </select>
+                    </div>
+                  </div>
+                )}
+
+                {!checkingPrevious && ((assignmentTarget === 'route' && selectedRoute) || (assignmentTarget === 'employee' && selectedEmployee)) && !previousAsset && (
+                  <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-2xl flex items-center gap-2 text-xs text-emerald-800 font-semibold">
+                    <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+                    Esta ruta no cuenta con equipo asignado previamente (Se registrará como entrega / asignación inicial).
+                  </div>
+                )}
+
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">
+                    {previousAsset ? 'Motivo de Cambio (Obligatorio)' : 'Motivo de Asignación (Opcional)'}
+                  </label>
+                  <select 
+                    value={motifId}
+                    onChange={e => setMotifId(e.target.value)}
+                    required={!!previousAsset}
+                    className="w-full bg-slate-50 border-transparent rounded-xl px-4 py-3 text-sm font-medium text-slate-900 hover:border-slate-200 focus:border-primary-500 focus:bg-white focus:ring-0 transition-all outline-none"
+                  >
+                    <option value="">{previousAsset ? 'Selecciona Motivo de Cambio' : 'Sin motivo específico / Asignación normal'}</option>
+                    {motifs.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+                  </select>
+                </div>
             </div>
           )}
 
@@ -466,10 +669,10 @@ export default function AssignAsset() {
                         <span className="text-sm font-bold text-slate-500">Haz clic para subir foto</span>
                         <input type="file" accept="image/*" capture="environment" className="hidden" onChange={handleEvidenceUpload} />
                       </label>
-                   )}
-               </div>
-            </div>
-          )}
+                    )}
+                </div>
+             </div>
+           )}
 
           <div className="space-y-2 pt-4 border-t border-slate-100">
             <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">Notas Adicionales</label>

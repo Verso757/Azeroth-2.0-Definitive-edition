@@ -627,7 +627,7 @@ export default function AdminPanel() {
                     collectionName="brands" 
                     title="Marcas / Modelos de Equipos" 
                     fields={[ 
-                      { name: 'name', label: 'Nombre/Modelo' },
+                      { name: 'name', label: 'Marca y Modelo Completo (Ej: Oppo Reno 7, Zebra ZQ520)' },
                       { name: 'type', label: 'Tipo de Equipo', type: 'select', options: equipmentTypes.map(e => ({ value: e.name, label: e.name })) } 
                     ]} 
                     selectedGuild={selectedAdminGuild}

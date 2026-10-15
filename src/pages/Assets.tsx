@@ -7,7 +7,7 @@ import { handleFirestoreError } from '../constants';
 import { Search, Plus, Upload, Filter, MonitorSmartphone } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import Papa from 'papaparse';
-import { cn } from '../lib/utils';
+import { cn, normalizeEquipmentType } from '../lib/utils';
 import { LayoutDashboard } from 'lucide-react';
 
 const TYPE_TRANSLATIONS: Record<string, string> = {
@@ -85,7 +85,7 @@ export default function Assets() {
                           (asset.currentRouteName || '').toLowerCase().includes(searchTerm.toLowerCase());
     
     if (!matchesSearch) return false;
-    if (typeFilt !== 'all' && asset.type !== typeFilt) return false;
+    if (typeFilt !== 'all' && normalizeEquipmentType(asset.type) !== normalizeEquipmentType(typeFilt)) return false;
     if (statusFilt !== 'all' && asset.status !== statusFilt) return false;
     
     return true;
@@ -256,7 +256,7 @@ export default function Assets() {
                         </div>
                         <div>
                           <p className="font-bold text-slate-900 leading-tight">{asset.model}</p>
-                          <p className="text-sm text-slate-500 font-medium">{asset.brandName || '-'} • {equipmentTypes.find(et => et.name === asset.type)?.name || TYPE_TRANSLATIONS[asset.type] || asset.type}</p>
+                          <p className="text-sm text-slate-500 font-medium">{asset.brandName || '-'} • {normalizeEquipmentType(asset.type)}</p>
                         </div>
                       </div>
                     </td>

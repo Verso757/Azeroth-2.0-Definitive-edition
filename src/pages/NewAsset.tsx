@@ -4,12 +4,14 @@ import { db } from '../firebase';
 import { useAuth } from '../AuthContext';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, Save } from 'lucide-react';
+import { normalizeEquipmentType } from '../lib/utils';
 
 const TYPE_OPTIONS = [
-  { value: 'printer', label: 'Impresora' },
-  { value: 'smartphone', label: 'Celular' },
-  { value: 'tablet', label: 'Tablet' },
-  { value: 'other', label: 'Otro' }
+  { value: 'Celular', label: 'Celular' },
+  { value: 'Impresora Térmica', label: 'Impresora Térmica' },
+  { value: 'Tablet', label: 'Tablet' },
+  { value: 'Laptop / PC', label: 'Laptop / PC' },
+  { value: 'Otro', label: 'Otro' }
 ];
 
 export default function NewAsset() {
@@ -19,7 +21,7 @@ export default function NewAsset() {
   const [equipmentTypes, setEquipmentTypes] = useState<any[]>([]);
   const [brands, setBrands] = useState<any[]>([]);
 
-  const [type, setType] = useState('smartphone');
+  const [type, setType] = useState('Celular');
   const [brandName, setBrandName] = useState('');
   const [model, setModel] = useState('');
   const [uid, setUid] = useState('');
@@ -67,9 +69,11 @@ export default function NewAsset() {
       const assetRef = doc(collection(db, 'assets'));
       const batch = writeBatch(db);
 
+      const normalizedType = normalizeEquipmentType(type);
+
       batch.set(assetRef, {
         guildId: profile.guildId,
-        type,
+        type: normalizedType,
         brandName,
         model,
         uid,
@@ -84,7 +88,7 @@ export default function NewAsset() {
         guildId: profile.guildId,
         assetId: assetRef.id,
         assetUid: uid,
-        assetType: type,
+        assetType: normalizedType,
         type: 'entry',
         toStatus: 'available',
         notes: 'Alta manual de activo',
