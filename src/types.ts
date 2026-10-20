@@ -132,6 +132,14 @@ export interface Employee {
   updatedAt: any;
 }
 
+export interface AssignedEquipmentItem {
+  id?: string;
+  type: string;
+  brandName: string;
+  uid: string;
+  assignedAt?: any;
+}
+
 export interface RouteResponsiva {
   id: string; // which is routeId
   guildId: string;
@@ -142,6 +150,7 @@ export interface RouteResponsiva {
   equipmentType: string;
   brandName: string;
   newEquipment?: string;
+  assignedEquipments?: AssignedEquipmentItem[];
   userName: string; // The person registering
   affectedPerson: string; // The person who received the equipment
   scannedDocument?: string; // Base64 compressed image

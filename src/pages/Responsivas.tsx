@@ -158,10 +158,28 @@ export default function Responsivas() {
                   <h3 className="text-lg font-black text-slate-800">{r.routeName}</h3>
                </div>
                
-               <div className="text-sm text-slate-600 space-y-1">
+               <div className="text-sm text-slate-600 space-y-2">
                  <p><span className="font-semibold text-slate-800">Asesor:</span> {r.affectedPerson}</p>
-                 <p><span className="font-semibold text-slate-800">Equipo:</span> {r.brandName} - {r.equipmentType}</p>
-                 <p><span className="font-semibold text-slate-800">Serie/IMEI:</span> {r.newEquipment || 'No registrado'}</p>
+                 
+                 {r.assignedEquipments && r.assignedEquipments.length > 0 ? (
+                   <div className="space-y-1.5 bg-slate-50 p-2.5 rounded-xl border border-slate-100">
+                     <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+                       Equipos Asignados ({r.assignedEquipments.length}):
+                     </span>
+                     {r.assignedEquipments.map((eq, idx) => (
+                       <div key={idx} className="flex items-center justify-between text-xs font-medium text-slate-700 bg-white px-2.5 py-1.5 rounded-lg border border-slate-200/60">
+                         <span className="font-bold text-slate-800 truncate">{eq.type}: {eq.brandName}</span>
+                         <span className="font-mono text-slate-500 text-[11px] font-semibold shrink-0 ml-2">{eq.uid}</span>
+                       </div>
+                     ))}
+                   </div>
+                 ) : (
+                   <>
+                     <p><span className="font-semibold text-slate-800">Equipo:</span> {r.brandName} - {r.equipmentType}</p>
+                     <p><span className="font-semibold text-slate-800">Serie/IMEI:</span> {r.newEquipment || 'No registrado'}</p>
+                   </>
+                 )}
+
                  <p className="text-xs text-slate-400 mt-2">
                     Actualizado: {r.updatedAt?.toDate ? r.updatedAt.toDate().toLocaleDateString() : 'N/A'}
                  </p>
@@ -255,11 +273,21 @@ export default function Responsivas() {
                 <div className="bg-white p-6 rounded-2xl shadow-sm text-sm space-y-4 text-slate-700">
                     <h4 className="font-black text-center text-lg text-slate-900">CARTA RESPONSIVA DE EQUIPO</h4>
                     <p>Por medio de la presente, el Sr(a). <strong>{signingDoc.affectedPerson}</strong>, encargado(a) de la ruta <strong>{signingDoc.routeName}</strong> de la sucursal <strong>{signingDoc.cityName}</strong>, recibe de conformidad el siguiente equipo de trabajo:</p>
-                    <ul className="list-disc pl-6 font-medium">
-                      <li>Tipo: {signingDoc.equipmentType}</li>
-                      <li>Marca/Modelo: {signingDoc.brandName}</li>
-                      <li>IMEI/Serie: {signingDoc.newEquipment || 'No registrado'}</li>
-                    </ul>
+                    {signingDoc.assignedEquipments && signingDoc.assignedEquipments.length > 0 ? (
+                      <ul className="list-disc pl-6 font-medium space-y-1">
+                        {signingDoc.assignedEquipments.map((eq, i) => (
+                          <li key={i}>
+                            <strong>{eq.type}:</strong> {eq.brandName} (Serie / IMEI: {eq.uid})
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <ul className="list-disc pl-6 font-medium">
+                        <li>Tipo: {signingDoc.equipmentType}</li>
+                        <li>Marca/Modelo: {signingDoc.brandName}</li>
+                        <li>IMEI/Serie: {signingDoc.newEquipment || 'No registrado'}</li>
+                      </ul>
+                    )}
                     <p>Me comprometo a cuidar y mantener en buen estado el equipo que se me entrega, utilizándolo exclusivamente para los fines de la empresa. En caso de daño, pérdida o robo por negligencia, asumiré la responsabilidad correspondiente.</p>
                 </div>
                 
@@ -309,11 +337,21 @@ export default function Responsivas() {
                  recibe de conformidad el siguiente equipo de trabajo:
                </p>
 
-               <ul className="list-disc pl-8 space-y-2 font-medium">
-                 <li><strong>Tipo de Equipo:</strong> {printingDoc.equipmentType}</li>
-                 <li><strong>Marca y Modelo:</strong> {printingDoc.brandName}</li>
-                 <li><strong>IMEI / Serie:</strong> {printingDoc.newEquipment || '_______________'}</li>
-               </ul>
+               {printingDoc.assignedEquipments && printingDoc.assignedEquipments.length > 0 ? (
+                 <ul className="list-disc pl-8 space-y-2 font-medium">
+                   {printingDoc.assignedEquipments.map((eq, i) => (
+                     <li key={i}>
+                       <strong>{eq.type}:</strong> {eq.brandName} &mdash; <strong>IMEI / Serie:</strong> {eq.uid}
+                     </li>
+                   ))}
+                 </ul>
+               ) : (
+                 <ul className="list-disc pl-8 space-y-2 font-medium">
+                   <li><strong>Tipo de Equipo:</strong> {printingDoc.equipmentType}</li>
+                   <li><strong>Marca y Modelo:</strong> {printingDoc.brandName}</li>
+                   <li><strong>IMEI / Serie:</strong> {printingDoc.newEquipment || '_______________'}</li>
+                 </ul>
+               )}
 
                <p>
                  Me comprometo a cuidar y mantener en buen estado el equipo que se me entrega, 

@@ -3,11 +3,10 @@ import { collection, addDoc, setDoc, doc, serverTimestamp, getDocs, getDoc, quer
 import { db } from '../firebase';
 import { useAuth } from '../AuthContext';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Save, Loader2, Info } from 'lucide-react';
+import { ArrowLeft, Save, Loader2, Info, AlertCircle, RefreshCw, ShieldCheck, CheckCircle2 } from 'lucide-react';
 import { handleFirestoreError } from '../constants';
 import { OperationType, City, Route, Motif, Asset } from '../types';
-import { normalizeEquipmentType, formatBrandModel } from '../lib/utils';
-import { AlertCircle, RefreshCw } from 'lucide-react';
+import { cn, normalizeEquipmentType, formatBrandModel } from '../lib/utils';
 
 export default function NewExchange() {
   const { profile } = useAuth();
@@ -20,7 +19,9 @@ export default function NewExchange() {
   const [motifs, setMotifs] = useState<Motif[]>([]);
   const [availableAssets, setAvailableAssets] = useState<Asset[]>([]);
 
-  // Previous asset detection
+  // Route assets & exchange detection
+  const [routeAssignedAssets, setRouteAssignedAssets] = useState<Asset[]>([]);
+  const [replaceMode, setReplaceMode] = useState<'replace' | 'add'>('replace');
   const [previousAsset, setPreviousAsset] = useState<Asset | null>(null);
   const [previousDeviceStatus, setPreviousDeviceStatus] = useState<'maintenance' | 'available' | 'retired'>('maintenance');
   const [checkingPrevious, setCheckingPrevious] = useState(false);
@@ -92,9 +93,10 @@ export default function NewExchange() {
   };
 
   useEffect(() => {
-    const checkExistingEquipment = async () => {
+    const fetchRouteAssets = async () => {
       const targetId = assignmentTarget === 'route' ? routeId : employeeId;
       if (!targetId || !profile) {
+        setRouteAssignedAssets([]);
         setPreviousAsset(null);
         return;
       }
@@ -102,7 +104,7 @@ export default function NewExchange() {
       setCheckingPrevious(true);
       try {
         const adminGuilds = Array.from(new Set([profile.guildId, ...(profile.allowedGuilds || [])])).filter(Boolean).slice(0, 30);
-        // Buscar si hay un activo asignado a esta ruta / personal
+        // Buscar TODOS los activos asignados actualmente a esta ruta o personal
         const q = query(
           collection(db, 'assets'),
           where('guildId', 'in', adminGuilds),
@@ -110,36 +112,50 @@ export default function NewExchange() {
           where('status', '==', 'assigned')
         );
         const snap = await getDocs(q);
-        if (!snap.empty) {
-          const d = snap.docs[0];
-          setPreviousAsset({ id: d.id, ...d.data() } as Asset);
-        } else {
-          // Si no está registrado en inventario assets, checar responsivas previas
-          const respDoc = await getDoc(doc(db, 'route_responsivas', targetId));
-          if (respDoc.exists() && respDoc.data()?.newEquipment) {
-            const data = respDoc.data();
-            setPreviousAsset({
-              id: 'legacy_responsiva',
-              uid: data.newEquipment || 'Sin S/N',
-              type: data.equipmentType || 'Equipo',
-              brandName: data.brandName || '',
-              model: '',
-              status: 'assigned'
-            } as any);
-          } else {
-            setPreviousAsset(null);
-          }
-        }
+        const assetsList: Asset[] = snap.docs.map(d => ({ id: d.id, ...d.data() } as Asset));
+        setRouteAssignedAssets(assetsList);
       } catch (err) {
-        console.error("Error checking previous asset:", err);
-        setPreviousAsset(null);
+        console.error("Error fetching route assets:", err);
+        setRouteAssignedAssets([]);
       } finally {
         setCheckingPrevious(false);
       }
     };
 
-    checkExistingEquipment();
+    fetchRouteAssets();
   }, [assignmentTarget, routeId, employeeId, profile]);
+
+  // Identificar el equipo que se va a entregar y su tipo normalizado
+  const selectedDeliveringAsset = availableAssets.find(a => a.id === selectedAssetId);
+  const deliveringType = selectedDeliveringAsset ? normalizeEquipmentType(selectedDeliveringAsset.type) : '';
+
+  // Activos de la ruta del MISMO tipo (ej: Celular si entregamos Celular)
+  const sameTypeAssignedAssets = routeAssignedAssets.filter(
+    a => deliveringType && normalizeEquipmentType(a.type) === deliveringType
+  );
+  // Activos de la ruta de OTRO tipo (ej: Impresora si entregamos Celular) -> Quedan 100% protegidos
+  const otherTypeAssignedAssets = routeAssignedAssets.filter(
+    a => deliveringType && normalizeEquipmentType(a.type) !== deliveringType
+  );
+
+  // Vincular previousAsset solo si coincide en TIPO y se eligió reemplazar
+  useEffect(() => {
+    if (!selectedAssetId || !selectedDeliveringAsset) {
+      setPreviousAsset(null);
+      return;
+    }
+
+    if (replaceMode === 'add') {
+      setPreviousAsset(null);
+      return;
+    }
+
+    if (sameTypeAssignedAssets.length > 0) {
+      setPreviousAsset(sameTypeAssignedAssets[0]);
+    } else {
+      setPreviousAsset(null);
+    }
+  }, [selectedAssetId, routeAssignedAssets, replaceMode]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -193,10 +209,10 @@ export default function NewExchange() {
         motifId: motifId || '',
         motifName: motif?.name || '',
         newEquipment: asset.uid || '',
-        previousEquipment: previousAsset?.uid || null,
-        previousEquipmentDetails: previousAsset ? `${normalizeEquipmentType(previousAsset.type)} ${formatBrandModel(previousAsset.brandName, previousAsset.model)}` : null,
-        previousEquipmentDestination: previousAsset ? previousDeviceStatus : null,
-        isExchange: !!previousAsset,
+        previousEquipment: (replaceMode === 'replace' && previousAsset) ? previousAsset.uid : null,
+        previousEquipmentDetails: (replaceMode === 'replace' && previousAsset) ? `${normalizeEquipmentType(previousAsset.type)} ${formatBrandModel(previousAsset.brandName, previousAsset.model)}` : null,
+        previousEquipmentDestination: (replaceMode === 'replace' && previousAsset) ? previousDeviceStatus : null,
+        isExchange: replaceMode === 'replace' && !!previousAsset,
         price: price ? parseFloat(price) : null,
         userId: profile.uid || '',
         userName: profile.displayName || profile.email || '',
@@ -206,8 +222,8 @@ export default function NewExchange() {
         updatedAt: serverTimestamp(),
       });
 
-      // 2. Si había equipo anterior y existe en assets, actualizar su estatus y registrar transacción
-      if (previousAsset && previousAsset.id !== 'legacy_responsiva') {
+      // 2. Si había equipo anterior del mismo tipo y se eligió reemplazar, actualizar su estatus y registrar transacción
+      if (replaceMode === 'replace' && previousAsset && previousAsset.id !== 'legacy_responsiva') {
         const prevAssetRef = doc(db, 'assets', previousAsset.id);
         const prevUpdate: any = {
           status: previousDeviceStatus,
@@ -239,7 +255,27 @@ export default function NewExchange() {
         });
       }
 
-      // 3. Sobreescribir o crear la responsiva para la ruta
+      // 3. Actualizar la responsiva para la ruta (los demás equipos de la ruta se mantienen intactos)
+      const remainingAssets = routeAssignedAssets.filter(
+        a => !(replaceMode === 'replace' && previousAsset && a.id === previousAsset.id)
+      );
+      const newAssetItem = {
+        id: asset.id,
+        type: normalizedEquipmentType,
+        brandName: fullBrandName,
+        uid: asset.uid || '',
+        assignedAt: new Date().toISOString()
+      };
+      const allAssignedEquipments = [
+        ...remainingAssets.map(a => ({
+          id: a.id,
+          type: normalizeEquipmentType(a.type),
+          brandName: formatBrandModel(a.brandName, a.model),
+          uid: a.uid || '',
+        })),
+        newAssetItem
+      ];
+
       const responsivaRef = doc(db, 'route_responsivas', targetRouteId);
       
       let existingSig = null;
@@ -261,9 +297,10 @@ export default function NewExchange() {
         cityName: targetCityName,
         routeId: targetRouteId,
         routeName: targetRouteName,
-        equipmentType: normalizedEquipmentType,
-        brandName: fullBrandName,
-        newEquipment: asset.uid || '',
+        assignedEquipments: allAssignedEquipments,
+        equipmentType: allAssignedEquipments.map(e => e.type).join(' + '),
+        brandName: allAssignedEquipments.map(e => e.brandName).join(' • '),
+        newEquipment: allAssignedEquipments.map(e => e.uid).join(' / '),
         userId: profile.uid || '',
         userName: profile.displayName || profile.email || '',
         affectedPerson: targetAffectedPerson,
@@ -397,27 +434,139 @@ export default function NewExchange() {
              </div>
            )}
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-2">
-            {/* Current equipment detection */}
+          {/* Current equipment detection & inventory status */}
+          <div className="space-y-4 pt-2">
             {checkingPrevious && (
-              <div className="col-span-full p-3 bg-slate-50 border border-slate-200 rounded-2xl flex items-center gap-2 text-xs text-slate-500 font-medium">
+              <div className="p-3 bg-slate-50 border border-slate-200 rounded-2xl flex items-center gap-2 text-xs text-slate-500 font-medium">
                 <Loader2 className="w-4 h-4 animate-spin text-primary-500" />
-                Consultando equipo actual asignado a la ruta...
+                Consultando equipos actuales de la ruta...
               </div>
             )}
 
-            {!checkingPrevious && previousAsset && (
-              <div className="col-span-full p-4 bg-amber-50/90 border border-amber-200 rounded-2xl space-y-3">
+            {/* Resumen de inventario actual en la ruta */}
+            {!checkingPrevious && ((assignmentTarget === 'route' && routeId) || (assignmentTarget === 'employee' && employeeId)) && routeAssignedAssets.length > 0 && (
+              <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-2xl space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
+                    📦 Inventario actual en esta ruta ({routeAssignedAssets.length})
+                  </span>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {routeAssignedAssets.map(item => {
+                    const isSameType = deliveringType && normalizeEquipmentType(item.type) === deliveringType;
+                    return (
+                      <div 
+                        key={item.id} 
+                        className={cn(
+                          "p-2.5 rounded-xl border text-xs flex items-center justify-between gap-2",
+                          isSameType 
+                            ? "bg-amber-50/70 border-amber-200 text-amber-900" 
+                            : "bg-white border-slate-200 text-slate-700"
+                        )}
+                      >
+                        <div className="min-w-0">
+                          <p className="font-bold truncate">
+                            {normalizeEquipmentType(item.type)}: {formatBrandModel(item.brandName, item.model)}
+                          </p>
+                          <p className="text-[11px] font-mono text-slate-500 truncate">
+                            S/N: {item.uid}
+                          </p>
+                        </div>
+                        <span className={cn(
+                          "text-[10px] font-black uppercase px-2 py-0.5 rounded-md shrink-0",
+                          isSameType 
+                            ? "bg-amber-200 text-amber-900" 
+                            : "bg-emerald-100 text-emerald-800"
+                        )}>
+                          {isSameType ? 'Mismo Tipo' : 'Protegido'}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="space-y-2">
+                <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">Equipo a Entregar (Disponible)</label>
+                <select
+                  value={selectedAssetId}
+                  onChange={e => setSelectedAssetId(e.target.value)}
+                  required
+                  className="w-full bg-slate-50 border-transparent rounded-xl px-4 py-3 text-sm font-medium text-slate-900 hover:border-slate-200 focus:border-primary-500 focus:bg-white focus:ring-0 transition-all outline-none"
+                >
+                  <option value="">Selecciona Inventario Disponible</option>
+                  {availableAssets.map(a => (
+                    <option key={a.id} value={a.id}>
+                      {a.type} - {a.brandName || a.model} (S/N: {a.uid})
+                    </option>
+                  ))}
+                </select>
+                {availableAssets.length === 0 && (
+                  <p className="text-xs text-red-500 font-bold mt-1">No hay equipos disponibles en inventario.</p>
+                )}
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">Motivo de Cambio</label>
+                <select 
+                  value={motifId}
+                  onChange={e => setMotifId(e.target.value)}
+                  required
+                  className="w-full bg-slate-50 border-transparent rounded-xl px-4 py-3 text-sm font-medium text-slate-900 hover:border-slate-200 focus:border-primary-500 focus:bg-white focus:ring-0 transition-all outline-none"
+                >
+                  <option value="">Selecciona Motivo</option>
+                  {motifs.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+                </select>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="space-y-2">
+                <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">Valor Declarado (Op.)</label>
+                <input 
+                  type="number" 
+                  step="0.01"
+                  min="0"
+                  value={price}
+                  onChange={e => setPrice(e.target.value)}
+                  placeholder="$0.00"
+                  className="w-full bg-slate-50 border-transparent rounded-xl px-4 py-3 text-sm font-medium text-slate-900 hover:border-slate-200 focus:border-primary-500 focus:bg-white focus:ring-0 transition-all outline-none"
+                />
+              </div>
+            </div>
+
+            {/* Banner de protección para equipos de OTRO tipo (ej: Impresora intacta cuando se entrega Celular) */}
+            {!checkingPrevious && selectedAssetId && otherTypeAssignedAssets.length > 0 && (
+              <div className="p-4 bg-emerald-50/90 border border-emerald-200 rounded-2xl flex items-start gap-3">
+                <div className="p-2 bg-emerald-100 rounded-xl text-emerald-700 shrink-0">
+                  <ShieldCheck className="w-5 h-5" />
+                </div>
+                <div className="flex-1 text-xs text-emerald-900">
+                  <p className="font-bold text-emerald-950 flex items-center gap-1.5">
+                    <span>Equipos protegidos que permanecen asignados a la ruta:</span>
+                  </p>
+                  <p className="mt-1 font-medium leading-relaxed">
+                    {otherTypeAssignedAssets.map(a => `${normalizeEquipmentType(a.type)} (${formatBrandModel(a.brandName, a.model)} - ${a.uid})`).join(', ')} 
+                    <strong> continuará intacto en la ruta</strong>. No será reemplazado ni retirado.
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {/* Banner de reemplazo / conservación para equipos del MISMO tipo */}
+            {!checkingPrevious && selectedAssetId && sameTypeAssignedAssets.length > 0 && previousAsset && (
+              <div className="p-4 bg-amber-50/90 border border-amber-200 rounded-2xl space-y-4">
                 <div className="flex items-start gap-3">
-                  <div className="p-2 bg-amber-100 rounded-xl text-amber-700">
+                  <div className="p-2 bg-amber-100 rounded-xl text-amber-700 shrink-0">
                     <RefreshCw className="w-5 h-5" />
                   </div>
                   <div className="flex-1">
                     <div className="flex items-center gap-2">
                       <span className="px-2 py-0.5 text-[11px] font-black uppercase tracking-wider bg-amber-200 text-amber-900 rounded-md">
-                        Cambio Detectado
+                        {deliveringType} anterior detectado
                       </span>
-                      <span className="text-xs font-bold text-amber-800">Esta ruta ya cuenta con equipo asignado</span>
                     </div>
                     <p className="text-sm font-black text-slate-900 mt-1">
                       {normalizeEquipmentType(previousAsset.type)}: {formatBrandModel(previousAsset.brandName, previousAsset.model)}
@@ -428,76 +577,81 @@ export default function NewExchange() {
                   </div>
                 </div>
 
-                <div className="pt-2 border-t border-amber-200/60 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                  <label className="text-xs font-bold text-amber-900">
-                    ¿Qué destino tendrá el equipo retirado ({previousAsset.uid})?
+                <div className="pt-2 border-t border-amber-200/60 space-y-3">
+                  <label className="text-xs font-bold text-amber-950 block">
+                    ¿Qué deseas hacer con el {deliveringType} anterior de la ruta?
                   </label>
-                  <select
-                    value={previousDeviceStatus}
-                    onChange={(e) => setPreviousDeviceStatus(e.target.value as any)}
-                    className="bg-white border border-amber-300 text-slate-800 text-xs font-bold rounded-xl px-3 py-2 outline-none focus:border-amber-500"
-                  >
-                    <option value="maintenance">🛠️ Enviar a Taller / Mantenimiento</option>
-                    <option value="available">📦 Reingresar a Inventario Disponible</option>
-                    <option value="retired">❌ Dar de Baja / Retirar</option>
-                  </select>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setReplaceMode('replace')}
+                      className={cn(
+                        "p-3 rounded-xl border text-left text-xs transition-all",
+                        replaceMode === 'replace'
+                          ? "bg-amber-100 border-amber-400 font-bold text-amber-950 ring-2 ring-amber-400"
+                          : "bg-white border-amber-200 text-slate-700 hover:bg-amber-50/50"
+                      )}
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className="w-3.5 h-3.5 rounded-full border-2 border-amber-600 flex items-center justify-center">
+                          {replaceMode === 'replace' && <span className="w-2 h-2 rounded-full bg-amber-600" />}
+                        </span>
+                        <span className="font-bold">Reemplazar {deliveringType}</span>
+                      </div>
+                      <p className="text-[11px] text-slate-600 mt-1 pl-5 font-normal">
+                        Retira el equipo anterior ({previousAsset.uid}) de la ruta.
+                      </p>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setReplaceMode('add')}
+                      className={cn(
+                        "p-3 rounded-xl border text-left text-xs transition-all",
+                        replaceMode === 'add'
+                          ? "bg-emerald-100 border-emerald-400 font-bold text-emerald-950 ring-2 ring-emerald-400"
+                          : "bg-white border-slate-200 text-slate-700 hover:bg-slate-50"
+                      )}
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className="w-3.5 h-3.5 rounded-full border-2 border-emerald-600 flex items-center justify-center">
+                          {replaceMode === 'add' && <span className="w-2 h-2 rounded-full bg-emerald-600" />}
+                        </span>
+                        <span className="font-bold">Conservar ambos ({deliveringType} adicional)</span>
+                      </div>
+                      <p className="text-[11px] text-slate-600 mt-1 pl-5 font-normal">
+                        No retira nada; mantiene ambos activos en la ruta.
+                      </p>
+                    </button>
+                  </div>
+
+                  {replaceMode === 'replace' && (
+                    <div className="pt-2 flex flex-col sm:flex-row sm:items-center justify-between gap-2 bg-amber-100/60 p-3 rounded-xl border border-amber-300">
+                      <label className="text-xs font-bold text-amber-900">
+                        ¿Qué destino tendrá el equipo retirado ({previousAsset.uid})?
+                      </label>
+                      <select
+                        value={previousDeviceStatus}
+                        onChange={(e) => setPreviousDeviceStatus(e.target.value as any)}
+                        className="bg-white border border-amber-300 text-slate-800 text-xs font-bold rounded-xl px-3 py-2 outline-none focus:border-amber-500 shadow-sm"
+                      >
+                        <option value="maintenance">🛠️ Enviar a Taller / Mantenimiento</option>
+                        <option value="available">📦 Reingresar a Inventario Disponible</option>
+                        <option value="retired">❌ Dar de Baja / Retirar</option>
+                      </select>
+                    </div>
+                  )}
                 </div>
               </div>
             )}
 
-            {!checkingPrevious && ((assignmentTarget === 'route' && routeId) || (assignmentTarget === 'employee' && employeeId)) && !previousAsset && (
-              <div className="col-span-full p-3 bg-emerald-50 border border-emerald-200 rounded-2xl flex items-center gap-2 text-xs text-emerald-800 font-semibold">
+            {/* Ruta sin ningún equipo previo */}
+            {!checkingPrevious && selectedAssetId && ((assignmentTarget === 'route' && routeId) || (assignmentTarget === 'employee' && employeeId)) && routeAssignedAssets.length === 0 && (
+              <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-2xl flex items-center gap-2 text-xs text-emerald-800 font-semibold">
                 <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
-                Esta ruta no cuenta con equipo asignado previamente (Se registrará como entrega / asignación inicial).
+                Esta ruta no cuenta con equipos asignados previamente (Se registrará como entrega / asignación inicial).
               </div>
             )}
-
-            <div className="space-y-2">
-              <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">Equipo a Entregar (Disponible)</label>
-              <select
-                value={selectedAssetId}
-                onChange={e => setSelectedAssetId(e.target.value)}
-                required
-                className="w-full bg-slate-50 border-transparent rounded-xl px-4 py-3 text-sm font-medium text-slate-900 hover:border-slate-200 focus:border-primary-500 focus:bg-white focus:ring-0 transition-all outline-none"
-              >
-                <option value="">Selecciona Inventario Disponible</option>
-                {availableAssets.map(a => (
-                  <option key={a.id} value={a.id}>
-                    {a.type} - {a.brandName || a.model} (S/N: {a.uid})
-                  </option>
-                ))}
-              </select>
-              {availableAssets.length === 0 && (
-                 <p className="text-xs text-red-500 font-bold mt-1">No hay equipos disponibles en inventario.</p>
-              )}
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div className="space-y-2">
-              <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">Motivo de Cambio</label>
-              <select 
-                value={motifId}
-                onChange={e => setMotifId(e.target.value)}
-                required
-                className="w-full bg-slate-50 border-transparent rounded-xl px-4 py-3 text-sm font-medium text-slate-900 hover:border-slate-200 focus:border-primary-500 focus:bg-white focus:ring-0 transition-all outline-none"
-              >
-                <option value="">Selecciona Motivo</option>
-                {motifs.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
-              </select>
-            </div>
-            <div className="space-y-2">
-              <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">Valor Declarado (Op.)</label>
-              <input 
-                type="number" 
-                step="0.01"
-                min="0"
-                value={price}
-                onChange={e => setPrice(e.target.value)}
-                placeholder="$0.00"
-                className="w-full bg-slate-50 border-transparent rounded-xl px-4 py-3 text-sm font-medium text-slate-900 hover:border-slate-200 focus:border-primary-500 focus:bg-white focus:ring-0 transition-all outline-none"
-              />
-            </div>
           </div>
 
           <div className="pt-6 border-t border-slate-100 flex justify-end gap-3">
